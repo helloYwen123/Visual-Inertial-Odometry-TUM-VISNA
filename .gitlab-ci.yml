@@ -1,0 +1,96 @@
+image: nikolausdemmel/visnav_image:20.04
+
+# TODO: memcheck / valgrind / asan
+
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+  BUILD_TYPE: RelWithDebInfo
+
+# template for docker builds with ccache
+.prepare_docker_template: &prepare_docker_definition
+  tags:
+    - docker
+  before_script:
+    - mkdir -p ccache
+    - export CCACHE_BASEDIR=${PWD}
+    - export CCACHE_DIR=${PWD}/ccache
+    - ccache -s
+  cache:
+    paths:
+    - ccache/
+    key: ${CI_JOB_NAME}
+
+# template for build
+.compile_template: &compile_definition
+  stage: build
+  script:
+    - ./build_submodules.sh ${BUILD_TYPE}
+    - mkdir build
+    - cd build
+    - cmake .. -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
+    - make -j2
+
+# template for build & unit test
+.compile_and_test_template: &compile_and_test_definition
+  stage: build
+  script:
+    - ./build_submodules.sh ${BUILD_TYPE}
+    - mkdir build
+    - cd build
+    - cmake .. -DCMAKE_BUILD_TYPE=${BUILD_TYPE}
+    - make -j2
+    # run tests, and if any fail, run again verbose
+    - ctest --output-on-failure
+
+# build on 20.04
+focal:
+  <<: *prepare_docker_definition
+  <<: *compile_and_test_definition
+
+# build on 20.04 with excluded parts
+focal-exclude-parts:
+  <<: *prepare_docker_definition
+  <<: *compile_definition
+  variables:
+    CXXFLAGS: "-Werror -DEXCLUDE_PARTS_EX1 -DEXCLUDE_PARTS_EX2 -DEXCLUDE_PARTS_EX3 -DEXCLUDE_PARTS_EX4 -DEXCLUDE_PARTS_EX5 -DEXCLUDE_EXPERIMENTAL"
+
+# build on 18.04
+bionic:
+  <<: *prepare_docker_definition
+  <<: *compile_and_test_definition
+  image: nikolausdemmel/visnav_image:18.04
+
+# jammy disabled for now: it results in segfaults
+# build on 22.04
+#jammy:
+#  <<: *prepare_docker_definition
+#  <<: *compile_and_test_definition
+#  image: nikolausdemmel/visnav_image:22.04
+
+# build on macos catalina
+catalina:
+  <<: *compile_and_test_definition
+  tags: [macos, "10.15"]
+
+# build on macos big sur
+bigsur:
+  <<: *compile_and_test_definition
+  tags: [macos, "11", x86_64]
+
+# build on macos monterey M1
+monterey:
+  <<: *compile_and_test_definition
+  tags: [macos, "12", arm64]
+
+# check if clang-format would make any changes
+clang-format:
+  tags:
+    - docker
+  stage: build
+  variables:
+    GIT_SUBMODULE_STRATEGY: none
+  script:
+    - clang-format --version
+    - ./run_format.sh
+    # check if any files are now modified and error if yes
+    - (if [ -n "`git diff --name-only --diff-filter=M --ignore-submodules`" ]; then echo $'\n    Some files are not properly formatted. You can use "./run_format.sh".\n'; git diff --diff-filter=M; false; fi)

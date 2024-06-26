@@ -1,0 +1,97 @@
+visnav presnetations
+
+1. 14:00 - 14:15 Hsuan Hao Wang, Anselm Coogan: SLAM
+
+- good intro, motivating relation to odom exercise
+- black background slides -.-
+- explained cov-graph well
+- keyframe culling explained, good visual
+- LC: detection and computing relative pose, lm merging
+- No PGO: BFS to propagate pose update
+- essential graph 
+- video demonstrating all steps
+- evaluation: qualitative map and trajectory results
+
+- timing: first part Hao 5-6min, 7-8min, slightly over time
+
+
+2. 14:15 - 14:30 Shristi Mudgal: BA-Net
+
+- motivations: mono-depth ill posed, bringing geometric structure to DL
+- intro/overview: a bit quick
+- basis depthmaps: how are linear factors w optimized?
+- Feature-Metric BA,
+- differentiable LM: lmabda prediction network, fix number of iterations
+- pseudocode with too much detail
+- jacobian: too much detail
+- results: loss curves, but no 3d results
+- strange non-smooth point cloud
+- timing: overtime 17:30
+
+
+3. 14:45 - 15:00 Alona Sakhnenko: Photometric Bundle Adjustment
+
+- motivation: relation to sfm
+- photometric error and point parameterization
+- candidate selection:
+- lack of visuals for explanations
+- "implemented functionality"
+- point tracking?
+- results: some numeric results, initial sfm error very high?
+- no visualizations
+- timing: short, 8min
+
+
+4. 14:30 - 14:45 Florian Ölsner: Photometric Bundle Adjustment
+
+- motivation: recap SfM, indirect vs direct
+- explanation of photometric error: good, with visuals
+- implementation aspects: map representation, bilateral filtering
+- freezing pose parameters of low-constrained frames ?
+- results: trajectory overview, numeric results similar accuracy to SfM (but no added information)
+- timing: 10min, 3min questions
+
+
+
+5. 15:00 - 15:15 Lex Meulenkamp: Indirect Visual Odometry with Optical Flow
+
+- optical flow; visual
+- brightness constancy: equations to motivate algorithm; neighbors move the same
+- too deep dive into implementation details, indexing
+- lack of overview of how optical flow fits in the overall pipeline
+- visual results overall reasonable, some drift at the end
+- no quantitative results ("WIP"); debugging of drift
+- timing: too short 7:30 min
+
+
+
+6. 15:15 - 15:30 Erkam Uyanik: Indirect Visual Odometry with Optical Flow
+
+- motivation: difference to odometry exercise
+- optical flow: brightness constancy, LK assumption (constant motion in neighborhood), coarse to fine
+- overall pipeline overview
+- FAST corner detecton
+- visual for point selection with grid, step by step tracking results look good
+- qualitative results: video, looks good
+- quantitative results: slightly worse ATE, runtime better
+- keyframe spacing larger, could explain worse ATE
+- maybe it is relative to multithreading, b/c the tracking is faster
+- idea: compute ate for all frames, also for ex5
+
+- timing: good
+
+
+7. 15:30 - 15:45 Joana Halili: SLAM
+- orb slam overview
+- explanation different stages with visuals
+- covisibility graph
+- map point culling
+- lc detection based on proximity
+- loop closing: observation merging open questions?
+- qualitative results: video
+- timing: ok
+- optimization of essential graph? -> PGO, then full BA (check impl?)
+
+
+
+

@@ -1,0 +1,1 @@
+rsync -av /storage/www/user/demmeln/visnav-hook/ ./ --exclude .git --exclude TOKEN --exclude '*.log'

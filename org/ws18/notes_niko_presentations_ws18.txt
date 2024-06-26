@@ -1,0 +1,39 @@
+1. X. Sun
+
+- overview good; some details not well motivated
+- results: interesting comparison,
+
+stubenrauch:
+
+- motivation a bit  fast
+- nice results
+- slightly overtime
+
+Ibrahimli / Kahn
+
+- explanation of how libraries work
+- vocabulary creation?
+- slightly under time
+- demo lfying camera?
+
+Pablo
+
+- motivation epipolar line search missing
+- a bit confused in parts
+
+
+Flynn / Goel
+
+- nice results
+- no local mapping
+- videos
+
+Rhaman
+
+ - optimize vs match all
+ - explanation of methods
+ - presentation of results
+ 
+Yumin
+
+ - nice
