@@ -49,6 +49,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pangolin/pangolin.h>
 
 #include <CLI/CLI.hpp>
+#include <queue>
+
+
 
 #include <visnav/common_types.h>
 
@@ -64,6 +67,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <visnav/serialization.h>
 #include "../include/visnav/imudata_load.h"
+#include "../include/visnav/preintergration_imu/imu_types.h"
+#include "../include/visnav/preintergration_imu/preintegration.h"
+#include "../include/visnav/preintergration_imu/calib_bias.hpp"
 using namespace visnav;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -74,6 +80,12 @@ void draw_image_overlay(pangolin::View& v, size_t view_id);
 void change_display_to_image(const FrameCamId& fcid);
 void draw_scene();
 void load_data(const std::string& path, const std::string& calib_path);
+void load_imu(     // load imu data
+    DatasetIoInterfacePtr& dataset_io,
+    std::queue<std::pair<Timestamp, ImuData<double>::Ptr>>& imu_data_queue, //  <timestamp , data(timestamp acceleration gyro)>
+    std::vector<Timestamp>& timestamps_imu, 
+    CalibAccelBias<double>& calib_accel,
+    CalibGyroBias<double>& calib_gyro);
 bool next_step();
 void optimize();
 void compute_projections();
@@ -104,6 +116,8 @@ std::shared_ptr<std::thread> opt_thread;
 /// intrinsic calibration
 Calibration calib_cam;
 Calibration calib_cam_opt;
+CalibAccelBias<double> calib_acc;
+CalibGyroBias<double> calib_gyro;
 
 /// loaded images
 tbb::concurrent_unordered_map<FrameCamId, std::string> images;
@@ -132,6 +146,10 @@ Landmarks landmarks_opt;
 /// landmark positions that were removed from the current map
 Landmarks old_landmarks;
 
+
+
+std::queue<std::pair<Timestamp, ImuData<double>::Ptr>> imu_data_queue;
+std::vector<Timestamp> imu_timestamps;
 /// cashed info on reprojected landmarks; recomputed every time time from
 /// cameras, landmarks, and feature_tracks; used for visualization and
 /// determining outliers; indexed by images
@@ -140,6 +158,9 @@ std::string dataset_type = "euroc"; ///////////////
 std::string imu_dataset_path =   ////////////
     "../data/euro_data/MH_01_easy";  // This should be set as a argument ...
                                      // will be changed later
+std::vector<Timestamp> gt_t_ns;
+std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>
+    gt_t_w_i;
 
 ///////////////////////////////////////////////////////////////////////////////
 /// GUI parameters
@@ -225,7 +246,7 @@ Button next_step_btn("ui.next_step", &next_step);
 // process everything in non-gui mode).
 int main(int argc, char** argv) {
   bool show_gui = true;
-  std::string dataset_path = "data/V1_01_easy/mav0";
+  std::string dataset_path = "data/MH_02_easy/mav0";
   std::string cam_calib = "opt_calib.json";
 
   CLI::App app{"Visual odometry."};
@@ -777,16 +798,40 @@ void load_data(const std::string& dataset_path, const std::string& calib_path) {
       DatasetIoFactory::getDatasetIo(dataset_type);
   dataset_io->read(dataset_path);
   // Load the ground true pose data
+  
   for (size_t i = 0; i < dataset_io->get_data()->get_gt_state_data().size();
        i++) {
     gt_t_ns.push_back(dataset_io->get_data()->get_gt_timestamps()[i]);
-    gt_t_w_i.push_back(
-        dataset_io->get_data()->get_gt_state_data()[i].translation());
+    gt_t_w_i.push_back(dataset_io->get_data()->get_gt_state_data()[i].translation());  // subset named groundtruth estimation
   }
-  std::cout << "Successfully loaded ground-true data with size of "
-            << gt_t_w_i.size() << std::endl; // True
+
+  std::cout << "Successfully loaded " << gt_t_w_i.size()<< " ground-true data "
+             << std::endl; // True
+
+  load_imu(dataset_io, imu_data_queue, imu_timestamps, calib_acc, calib_gyro);
+  std::cout << "Successfully loaded " <<  imu_data_queue.size() << " IMU data "
+            << std::endl;
 }
 
+
+
+void load_imu(
+    DatasetIoInterfacePtr& dataset_io,
+    std::queue<std::pair<Timestamp, ImuData<double>::Ptr>>& imu_data_queue, //  timestamp & data(timestamp acceleration gyro)
+    std::vector<Timestamp>& timestamps_imu, 
+    CalibAccelBias<double>& calib_accel,
+    CalibGyroBias<double>& calib_gyro) {
+  for (size_t i = 0; i < dataset_io->get_data()->get_accel_data().size(); i++) {
+    ImuData<double>::Ptr data(new ImuData<double>);  // create imu data object
+    data->t_ns = dataset_io->get_data()->get_gyro_data()[i].timestamp_ns;  // assign timestamp
+    timestamps_imu.push_back(data->t_ns);
+    data->accel = calib_accel.getCalibrated(
+        dataset_io->get_data()->get_accel_data()[i].data);  // calibrate acceleration and gyrometer ; and then assign data-> accel & gyro with calibrated version
+    data->gyro = calib_gyro.getCalibrated(
+        dataset_io->get_data()->get_gyro_data()[i].data);
+    imu_data_queue.push(std::make_pair(data->t_ns, data));
+  }
+}
 ///////////////////////////////////////////////////////////////////////////////
 /// Here the algorithmically interesting implementation begins
 ///////////////////////////////////////////////////////////////////////////////

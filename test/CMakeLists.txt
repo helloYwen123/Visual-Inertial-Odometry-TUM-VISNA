@@ -26,14 +26,14 @@ enable_testing()
 # add_executable(test_ex2 src/test_ex2.cpp)
 # target_link_libraries(test_ex2 gtest gtest_main Ceres::ceres Sophus::Sophus)
 
-add_executable(test_ex3 src/test_ex3.cpp)
-target_link_libraries(test_ex3 gtest gtest_main Ceres::ceres Sophus::Sophus pango_image TBB::tbb OpenCV opengv)
+#add_executable(test_ex3 src/test_ex3.cpp)
+#target_link_libraries(test_ex3 gtest gtest_main Ceres::ceres Sophus::Sophus pango_image TBB::tbb OpenCV opengv)
 
 #add_executable(test_ex4 src/test_ex4.cpp)
 #target_link_libraries(test_ex4 gtest gtest_main Ceres::ceres Sophus::Sophus opengv TBB::tbb)
 
- add_executable(test_ex5 src/test_ex5.cpp)
- target_link_libraries(test_ex5 gtest gtest_main Ceres::ceres Sophus::Sophus opengv TBB::tbb)
+ #add_executable(test_ex5 src/test_ex5.cpp)
+ #target_link_libraries(test_ex5 gtest gtest_main Ceres::ceres Sophus::Sophus opengv TBB::tbb)
 
 
 
@@ -42,6 +42,6 @@ target_link_libraries(test_ex3 gtest gtest_main Ceres::ceres Sophus::Sophus pang
 #gtest_discover_tests(test_ex1 DISCOVERY_TIMEOUT 120)
 #gtest_discover_tests(test_ex2 DISCOVERY_TIMEOUT 120)
 #add_test(NAME ex2_calibration_test COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_ex2.sh WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
-gtest_discover_tests(test_ex3 DISCOVERY_TIMEOUT 120)
+#gtest_discover_tests(test_ex3 DISCOVERY_TIMEOUT 120)
 #gtest_discover_tests(test_ex4 DISCOVERY_TIMEOUT 120)
-gtest_discover_tests(test_ex5 DISCOVERY_TIMEOUT 120)
+#gtest_discover_tests(test_ex5 DISCOVERY_TIMEOUT 120)

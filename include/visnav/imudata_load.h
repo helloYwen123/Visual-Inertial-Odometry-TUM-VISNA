@@ -141,21 +141,21 @@ private:
 
         while ((pos = line.find(',')) != std::string::npos && count < 6) {
             item = line.substr(0, pos);
-            data[count++] = std::stod(item);
+            Data[count++] = std::stod(item);
             line.erase(0, pos + 1);
         }
-        data[6] = std::stod(line);
+        Data[6] = std::stod(line);
 
-        uint64_t timestamp = static_cast<uint64_t>(data[0]);
-        Eigen::Vector3d gyro(data[1], data[2], data[3]);
-        Eigen::Vector3d accel(data[4], data[5], data[6]);
+        uint64_t timestamp = static_cast<uint64_t>(Data[0]);
+        Eigen::Vector3d gyro(Data[1], Data[2], Data[3]);
+        Eigen::Vector3d accel(Data[4], Data[5], Data[6]);
 
         data->accel_data.emplace_back(timestamp, accel);
         data->gyro_data.emplace_back(timestamp, gyro);
         }
     }
 
-    void read_gt_data_state(const std::string& path) {DatasetIoInterfacePtr
+    void read_gt_data_state(const std::string& path) {
         data->gt_timestamps.clear();
         data->gt_state_data.clear();
 
@@ -166,22 +166,22 @@ private:
 
         std::vector<double> Data(17);
         std::string item;
-        size_t pos = 0;
+        size_t p = 0;
         int count = 0;
 
-        while ((pos = line.find(',')) != std::string::npos && count < 16) {
-            item = line.substr(0, pos);
-            data[count++] = std::stod(item);
-            line.erase(0, pos + 1);
+        while ((p = line.find(',')) != std::string::npos && count < 16) {
+            item = line.substr(0, p);
+            Data[count++] = std::stod(item);
+            line.erase(0, p + 1);
         }
-        data[16] = std::stod(line);
+        Data[16] = std::stod(line);
 
-        uint64_t timestamp = static_cast<uint64_t>(data[0]);
-        Eigen::Vector3d pos(data[1], data[2], data[3]);
-        Eigen::Vector3d q(data[4], data[5], data[6], data[7]);
-        Eigen::Vector3d vel(data[8], data[9], data[10]);
-        Eigen::Vector3d accel_bias(data[11], data[12], data[13]);
-        Eigen::Vector3d gyro_bias(data[14], data[15], data[16]);
+        uint64_t timestamp = static_cast<uint64_t>(Data[0]);
+        Eigen::Vector3d pos(Data[1], Data[2], Data[3]);
+        Eigen::Quaterniond q(Data[4], Data[5], Data[6], Data[7]);
+        Eigen::Vector3d vel(Data[8], Data[9], Data[10]);
+        Eigen::Vector3d accel_bias(Data[11], Data[12], Data[13]);
+        Eigen::Vector3d gyro_bias(Data[14], Data[15], Data[16]);
 
 
         data->gt_timestamps.emplace_back(timestamp);
