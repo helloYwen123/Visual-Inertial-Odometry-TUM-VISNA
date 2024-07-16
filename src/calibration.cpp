@@ -428,7 +428,7 @@ problem.SetParameterBlockConstant(calib_cam.T_i_c[0].data());
 
 
 void save_calib() {
-  std::ofstream os("opt_calib.json");
+  std::ofstream os("opt_calib_ds_camera.json");
 
   if (os.is_open()) {
     cereal::JSONOutputArchive archive(os);

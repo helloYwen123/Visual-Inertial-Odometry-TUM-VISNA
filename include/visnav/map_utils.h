@@ -343,7 +343,7 @@ struct BundleAdjustmentOptions {
 };
 
 // Run bundle adjustment to optimize cameras, points, and optionally intrinsics
-void bundle_adjustment(const Corners& feature_corners,
+void Proj_bundle_adjustment(const Corners& feature_corners,
                        const BundleAdjustmentOptions& options,
                        const std::set<FrameCamId>& fixed_cameras,
                        Calibration& calib_cam, Cameras& cameras,
@@ -359,7 +359,7 @@ void bundle_adjustment(const Corners& feature_corners,
   // UNUSED(landmarks);
 for (auto& [track_id, landmark] : landmarks) {
     for (auto& [fcid, feature_id] : landmark.obs) {
-        // corresponding cameras and feature points
+      // corresponding cameras and feature points
       if (cameras.find(fcid) == cameras.end() || feature_corners.find(fcid) == feature_corners.end()) {
         continue; }
 
@@ -408,5 +408,142 @@ for (auto& [track_id, landmark] : landmarks) {
       break;
   }
 }
+
+// Run bundle adjustment to optimize cameras, points, and optionally intrinsics
+void Imu_Proj_bundle_adjustment(
+  const Corners& feature_corners, const BundleAdjustmentOptions& options,
+  const std::set<FrameCamId>& fixed_cameras, Calibration& calib_cam,
+  Cameras& cameras, Landmarks& landmarks,
+  Eigen::aligned_map<Timestamp, PoseVelState<double>>& states,
+  Eigen::aligned_map<Timestamp, IntegratedImuMeasurement<double>>&
+      imu_measurements,
+  std::vector<Timestamp>& timestamps) {
+  ceres::Problem problem;
+  std::cout<< "cameras parameter block!!!"<<std::endl;
+  for (auto& cam : cameras) {
+    problem.AddParameterBlock(cam.second.T_w_c.data(),
+                              Sophus::SE3d::num_parameters,
+                              new Sophus::test::LocalParameterizationSE3);
+    // Set the fixed frame paramter constant
+    if (fixed_cameras.find(cam.first) != fixed_cameras.end()) {
+      problem.SetParameterBlockConstant(cam.second.T_w_c.data());
+    }
+  }
+  std::cout<< "states parameter block!!!"<<std::endl;
+  // add data imu (state of IMU) to ResidualsBlock
+  for (auto& state : states) {
+    problem.AddParameterBlock(state.second.T_w_i.data(),
+                              Sophus::SE3d::num_parameters,
+                              new Sophus::test::LocalParameterizationSE3);
+  }
+
+  for (auto& [track_id, landmark] : landmarks) {
+    auto& p_3d = landmark.p;
+    for (auto& [fcid, feature_id] : landmark.obs) {
+      
+      const auto& p_2d = feature_corners.at(fcid).corners[feature_id];
+      BundleAdjustmentReprojectionCostFunctor* c =
+          new BundleAdjustmentReprojectionCostFunctor(
+              p_2d, calib_cam.intrinsics[fcid.cam_id]->name());
+      ceres::CostFunction* cost_function = new ceres::AutoDiffCostFunction<
+          BundleAdjustmentReprojectionCostFunctor, 2,
+          Sophus::SE3d::num_parameters, 3, 8>(c);
+
+        if (cameras.count(fcid)) { 
+          std::cout<< "camera residuals block!!!"<<std::endl; // 'cameras list' has frame&camera id then optimize camera location
+          problem.AddResidualBlock(
+              cost_function,
+              options.use_huber ? new ceres::HuberLoss(options.huber_parameter) : nullptr,
+              cameras.at(fcid).T_w_c.data(), p_3d.data(),
+              calib_cam.intrinsics[fcid.cam_id]->data());
+        } else {
+          std::cout<< "state residuals block!!!"<<std::endl; 
+          problem.AddResidualBlock( // 'cameras list' has no frame&camera id then optimize imu location
+              cost_function,
+              options.use_huber ? new ceres::HuberLoss(options.huber_parameter) : nullptr,
+              states.at(timestamps[fcid.frame_id]).T_w_i.data(), p_3d.data(),
+              calib_cam.intrinsics[fcid.cam_id]->data());
+        }
+
+      }
+    }
+    
+
+  // Add the parameter block first
+  if (states.size() == 3) {
+    std::cout<< "imu BA ing!"<<std::endl;
+   
+
+    // auto iter = states.rbegin();
+    // int iter_counter = 0;
+    // while (iter_counter < 3) {
+    //     std::cout<<"add parameter block!!! "<<std::endl;
+    //     visnav::PoseVelState<double>& state = states[iter->first];
+    //     problem.AddParameterBlock(state.T_w_i.data(), Sophus::SE3d::num_parameters,
+    //                               new Sophus::test::LocalParameterizationSE3);
+
+    //     ++iter;
+    //     iter_counter++;
+    // }
+    //reset
+    auto iter = states.rbegin();
+    int iter_counter = 0;
+   while (iter_counter < 2) {
+        std::cout<<"add residuals block!!! "<<std::endl;
+        const IntegratedImuMeasurement<double>& imu_meas = imu_measurements[iter->first];
+        visnav::PoseVelState<double>& state1 = states[iter->first];
+        ++iter;
+        visnav::PoseVelState<double>& state0 = states[iter->first];
+
+        BundleAdjustmentImuCostFunctor* imu_c = new BundleAdjustmentImuCostFunctor(
+            imu_meas.getDeltaState(), visnav::constants::g, state0.t_ns, state1.t_ns,
+            calib_cam.T_i_c[0]);
+        ceres::CostFunction* imu_cost_function = new ceres::AutoDiffCostFunction<
+            BundleAdjustmentImuCostFunctor, 9,
+            Sophus::SE3d::num_parameters,  // state0.T_w_i
+            Sophus::SE3d::num_parameters,  // state1.T_w_i
+            3,                             // state0.vel_w_i
+            3                              // state1.vel_w_i
+            >(imu_c);
+
+      problem.AddResidualBlock(
+          imu_cost_function, 
+          options.use_huber ? new ceres::HuberLoss(options.huber_parameter) : nullptr,
+          state0.T_w_i.data(), state1.T_w_i.data(), state0.vel_w_i.data(),
+          state1.vel_w_i.data());
+
+      iter_counter++;
+     
+    }
+  }
+  else{std::cout<<"Error! The num of processed states isn't 3"<<std::endl;}
+
+
+  if (!options.optimize_intrinsics) {
+    // Keep the intrinsics fixed
+    problem.SetParameterBlockConstant(calib_cam.intrinsics[0]->data());
+    problem.SetParameterBlockConstant(calib_cam.intrinsics[1]->data());
+  } else {
+    // Do nothing
+  }
+
+  // Solve
+  ceres::Solver::Options ceres_options;
+  ceres_options.max_num_iterations = options.max_num_iterations;
+  ceres_options.linear_solver_type = ceres::SPARSE_SCHUR;
+  ceres_options.num_threads = std::thread::hardware_concurrency();
+  ceres::Solver::Summary summary;
+  Solve(ceres_options, &problem, &summary);
+  switch (options.verbosity_level) {
+    // 0: silent
+    case 1:
+      std::cout << summary.BriefReport() << std::endl;
+      break;
+    case 2:
+      std::cout << summary.FullReport() << std::endl;
+      break;
+  }
+}
+
 
 }  // namespace visnav

@@ -30,26 +30,24 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <CLI/CLI.hpp>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <iostream>
+#include <queue>
+#include <sophus/se3.hpp>
 #include <sstream>
 #include <thread>
-
 #include <sophus/se3.hpp>
 
 #include <tbb/concurrent_unordered_map.h>
-
 #include <pangolin/display/image_view.h>
 #include <pangolin/display/default_font.h>
 #include <pangolin/image/image.h>
 #include <pangolin/image/image_io.h>
 #include <pangolin/image/typed_image.h>
 #include <pangolin/pangolin.h>
-
-#include <CLI/CLI.hpp>
-#include <queue>
 
 
 
@@ -66,10 +64,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <visnav/tracks.h>
 
 #include <visnav/serialization.h>
-#include "../include/visnav/imudata_load.h"
-#include "../include/visnav/preintergration_imu/imu_types.h"
-#include "../include/visnav/preintergration_imu/preintegration.h"
-#include "../include/visnav/preintergration_imu/calib_bias.hpp"
+#include <visnav/imudata_load.h>
+#include <visnav/preintegration_imu/imu_types.h>
+#include <visnav/preintegration_imu/preintegration.h>
+#include <visnav/preintegration_imu/calib_bias.hpp>
+#include <visnav/preintegration_imu/utils/assert.h>
+#include <visnav/preintegration_imu/utils/eigen_utils.hpp>
 using namespace visnav;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -80,12 +80,18 @@ void draw_image_overlay(pangolin::View& v, size_t view_id);
 void change_display_to_image(const FrameCamId& fcid);
 void draw_scene();
 void load_data(const std::string& path, const std::string& calib_path);
-void load_imu(     // load imu data
+void load_imu(            // load imu data
     DatasetIoInterfacePtr& dataset_io,
-    std::queue<std::pair<Timestamp, ImuData<double>::Ptr>>& imu_data_queue, //  <timestamp , data(timestamp acceleration gyro)>
+    std::queue<std::pair<Timestamp, ImuData<double>::Ptr>>& imu_data_queue,  // <timestamp , data(timestamp acceleration gyro)>
     std::vector<Timestamp>& timestamps_imu, 
     CalibAccelBias<double>& calib_accel,
     CalibGyroBias<double>& calib_gyro);
+void update_frame_states_from_opt(
+    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states,
+    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states_opt);
+void get_frame_states_opt(
+    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states,
+    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states_opt);
 bool next_step();
 void optimize();
 void compute_projections();
@@ -113,11 +119,35 @@ std::set<FrameId> kf_frames;
 
 std::shared_ptr<std::thread> opt_thread;
 
+///the num that is allowed to exist in the map (default size: 3)
+size_t num_latest_frames = 3; 
+std::vector<FrameCamId> removed_fcid_buffer;
+
 /// intrinsic calibration
 Calibration calib_cam;
 Calibration calib_cam_opt;
 CalibAccelBias<double> calib_acc;
 CalibGyroBias<double> calib_gyro;
+
+// initialization for imu
+bool use_imu = false;
+bool initialized = false;
+using Vec3 = Eigen::Matrix<double, 3, 1>;
+Eigen::aligned_map<Timestamp, IntegratedImuMeasurement<double>> imu_measurements;
+IntegratedImuMeasurement<double>::Ptr imu_measurement;
+ImuData<double>::Ptr imudata;
+Sophus::SE3d T_w_i_init;
+Vec3 vel_w_i_init;
+PoseVelState<double> first_state;  // initial state for imu
+// the last state's timestamp
+Timestamp last_state_t_ns;
+
+std::queue<std::pair<Timestamp, ImuData<double>::Ptr>> imu_data_queue;
+std::vector<Timestamp> imu_timestamps;
+
+Eigen::aligned_map<Timestamp, PoseVelState<double>> frame_states;
+Eigen::aligned_map<Timestamp, PoseVelState<double>> frame_states_opt;
+
 
 /// loaded images
 tbb::concurrent_unordered_map<FrameCamId, std::string> images;
@@ -146,10 +176,17 @@ Landmarks landmarks_opt;
 /// landmark positions that were removed from the current map
 Landmarks old_landmarks;
 
+// initialize recent cameras for imu's state update 
+Cameras recent_cameras;
 
-
-std::queue<std::pair<Timestamp, ImuData<double>::Ptr>> imu_data_queue;
-std::vector<Timestamp> imu_timestamps;
+//Ground Truth timestamp and pose
+std::vector<Timestamp> gt_t_ns;
+std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>
+    gt_t_w_i;
+// record vio's Trajectory
+std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>
+    vio_t_w_i;
+std::vector<Timestamp> vio_t_ns;
 /// cashed info on reprojected landmarks; recomputed every time time from
 /// cameras, landmarks, and feature_tracks; used for visualization and
 /// determining outliers; indexed by images
@@ -158,9 +195,7 @@ std::string dataset_type = "euroc"; ///////////////
 std::string imu_dataset_path =   ////////////
     "../data/euro_data/MH_01_easy";  // This should be set as a argument ...
                                      // will be changed later
-std::vector<Timestamp> gt_t_ns;
-std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>
-    gt_t_w_i;
+
 
 ///////////////////////////////////////////////////////////////////////////////
 /// GUI parameters
@@ -246,7 +281,7 @@ Button next_step_btn("ui.next_step", &next_step);
 // process everything in non-gui mode).
 int main(int argc, char** argv) {
   bool show_gui = true;
-  std::string dataset_path = "data/MH_02_easy/mav0";
+  std::string dataset_path = "data/V1_01_easy/mav0";
   std::string cam_calib = "opt_calib.json";
 
   CLI::App app{"Visual odometry."};
@@ -256,7 +291,7 @@ int main(int argc, char** argv) {
                  "Dataset path. Default: " + dataset_path);
   app.add_option("--cam-calib", cam_calib,
                  "Path to camera calibration. Default: " + cam_calib);
-
+  app.add_option("--use-imu", use_imu, "Use IMU");
   try {
     app.parse(argc, argv);
   } catch (const CLI::ParseError& e) {
@@ -730,7 +765,7 @@ void draw_scene() {
   }
 }
 
-// Load images, calibration, and features / matches if available
+// Load images, calibration, imu, and features / matches if available
 void load_data(const std::string& dataset_path, const std::string& calib_path) {
   const std::string timestams_path = dataset_path + "/cam0/data.csv";
 
@@ -774,9 +809,13 @@ void load_data(const std::string& dataset_path, const std::string& calib_path) {
     std::ifstream os(calib_path, std::ios::binary);
 
     if (os.is_open()) {
+
       cereal::JSONInputArchive archive(os);
       archive(calib_cam);
       std::cout << "Loaded camera from " << calib_path << " with models ";
+      // if do calibration for imu data
+      //calib_acc.getParam() = calib_cam.calib_accel_bias;
+      //calib_gyro.getParam() = calib_cam.calib_gyro_bias;
       for (const auto& cam : calib_cam.intrinsics) {
         std::cout << cam->name() << " ";
       }
@@ -843,6 +882,72 @@ bool next_step() {
 
   const Sophus::SE3d T_0_1 = calib_cam.T_i_c[0].inverse() * calib_cam.T_i_c[1];
 
+  if (use_imu) {
+      const Vec3 accel_cov =
+          (calib_cam.accel_noise_std * std::sqrt(calib_cam.imu_update_rate))
+              .array()
+              .square();
+
+      const Vec3 gyro_cov =
+          (calib_cam.gyro_noise_std * std::sqrt(calib_cam.imu_update_rate))
+              .array()
+              .square();
+      
+      if (!initialized) {
+        imudata = imu_data_queue.front().second;  //skip the IMU data before current timestamp
+        imu_data_queue.pop();
+
+        while (imudata->t_ns < timestamps[current_frame]) {
+          imudata = imu_data_queue.front().second;
+          imu_data_queue.pop();
+          if (!imudata){std::cout << "Skipping IMU data because of no existing.." << std::endl;break;} 
+        }
+
+        // Initialize the pose following the pipeline in basalt
+        vel_w_i_init.setZero();
+        T_w_i_init.setQuaternion(Eigen::Quaternion<double>::FromTwoVectors(
+            imudata->accel, Vec3::UnitZ()));
+        last_state_t_ns = timestamps[current_frame];
+        imu_measurements[last_state_t_ns] = IntegratedImuMeasurement<double>(
+            last_state_t_ns, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+
+        first_state.T_w_i = T_w_i_init;
+        first_state.vel_w_i = vel_w_i_init;
+        frame_states[last_state_t_ns] = first_state;
+        initialized = true;
+    } else {
+        Timestamp curr_frame = timestamps[current_frame];
+
+        imu_measurement.reset(new IntegratedImuMeasurement<double>(
+            last_state_t_ns, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero())); // reset the variable(state_delta_) 
+        //// if take the calib bias
+        //    imu_measurement.reset(new IntegratedImuMeasurement<double>(
+        //    last_t_ns, calib_cam.calib_gyro_bias.template head<3>(),
+        //    calib_cam.calib_accel_bias.template head<3>()));
+        while (imudata->t_ns <= last_state_t_ns) {
+          imudata = imu_data_queue.front().second;
+          imu_data_queue.pop();
+        }
+
+        while (imudata->t_ns <= curr_frame) {
+          imu_measurement->integrate(*imudata, accel_cov, gyro_cov);
+          imudata = imu_data_queue.front().second;
+          imu_data_queue.pop();
+        }
+
+        PoseVelState<double> last_state = frame_states[last_state_t_ns];
+        PoseVelState<double> curr_state;
+        imu_measurement->predictState(last_state, constants::g, curr_state);
+        imu_measurements[curr_frame] = *imu_measurement;
+        frame_states[curr_frame] = curr_state;
+        std::cout << "Frame states size: " << frame_states.size() <<std::endl; 
+        //states.emplace(std::make_pair(curr_frame, next_state));
+        last_state_t_ns = curr_frame;
+      }
+    } else {
+      // Do nothing here
+    }
+
   if (take_keyframe) {
     take_keyframe = false;
 
@@ -881,7 +986,7 @@ bool next_step() {
     findInliersEssential(kdl, kdr, calib_cam.intrinsics[0],
                          calib_cam.intrinsics[1], E, 1e-3, md_stereo); // through epipolar constraint to get inliers
 
-    std::cout << "KF Found " << md_stereo.inliers.size() << " stereo-matches."
+    std::cout << "KF Found " << md_stereo.inliers.size() << " 2d stereo-matches."
               << std::endl;
 
     feature_corners[fcidl] = kdl;
@@ -895,7 +1000,7 @@ bool next_step() {
                            feature_match_max_dist, feature_match_test_next_best,
                            md);
 
-    std::cout << "KF Found " << md.matches.size() << " matches." << std::endl;
+    std::cout << "KF Found " << md.matches.size() << " 3d-2d landmarks matches." << std::endl;
 
     localize_camera(current_pose, calib_cam.intrinsics[0], kdl, landmarks,
                     reprojection_error_pnp_inlier_threshold_pixel, md);
@@ -908,8 +1013,18 @@ bool next_step() {
     add_new_landmarks(fcidl, fcidr, kdl, kdr, calib_cam, md_stereo, md,
                       landmarks, next_landmark_id);
 
-    remove_old_keyframes(fcidl, max_num_kfs, cameras, landmarks, old_landmarks,
-                         kf_frames);
+    Camera removed_camera;
+    FrameId removed_fid;
+    bool removed = remove_old_keyframes(fcidl, max_num_kfs, cameras, landmarks,
+                                        old_landmarks, kf_frames,
+                                        removed_camera, removed_fid);
+
+    // Ducument the removed keyframe
+    if (removed) {
+      Sophus::SE3d T_w_i = removed_camera.T_w_c * calib_cam.T_i_c[0].inverse();
+      vio_t_ns.push_back(timestamps[removed_fid]);
+      vio_t_w_i.push_back(T_w_i.translation());    //imu frame's T relative to world frame and timestamp
+    }
     optimize();
 
     current_pose = cameras[fcidl].T_w_c;
@@ -922,6 +1037,7 @@ bool next_step() {
 
     current_frame++;
     return true;
+
   } else {
     FrameCamId fcidl(current_frame, 0), fcidr(current_frame, 1);
 
@@ -932,9 +1048,11 @@ bool next_step() {
     project_landmarks(current_pose, calib_cam.intrinsics[0], landmarks,
                       cam_z_threshold, projected_points, projected_track_ids);
 
-    std::cout << "Projected " << projected_track_ids.size() << " points."
+    std::cout << "(no KF)Projected " << projected_track_ids.size() << " points."
               << std::endl;
 
+
+///  only take and handle left camera only in (no take key frame) this frame 
     KeypointsData kdl;
 
     pangolin::ManagedImage<uint8_t> imgl = pangolin::LoadImage(images[fcidl]);
@@ -957,17 +1075,71 @@ bool next_step() {
 
     current_pose = md.T_w_c;
 
+ if (use_imu) {
+      recent_cameras[fcidl].T_w_c = current_pose;
+      std::cout<< "add recent camera!! "<< std::endl;
+      for (auto& kv : md.inliers) {  
+        const FeatureId& f_id = kv.first;
+        const TrackId& t_id = kv.second;
+        if (landmarks.count(t_id) > 0)  // add new landmarks but no through Triangulation
+        {
+          landmarks.at(t_id).obs.emplace(std::make_pair(fcidl, f_id));
+        } else {
+          // do nothing
+        }
+      }
+
+      if (recent_cameras.size() > num_latest_frames) {
+        FrameId oldest_frame = 1000000;  // in 1000000 frames ;
+        // update oldest frame and removed frame from front to end
+        FrameCamId remove_fcid;
+        for (const auto& kv : recent_cameras) {
+          if (kv.first.frame_id < oldest_frame) {
+            oldest_frame = kv.first.frame_id;
+            remove_fcid = kv.first;
+          } else {
+            // do nothing
+          }
+        }
+
+        // always remove the oldest frames from cameras container(larger than num)
+        recent_cameras.erase(remove_fcid);
+        removed_fcid_buffer.push_back(remove_fcid);
+        for (auto& landmark : landmarks) {
+          if (!cameras.count(remove_fcid)) {  // this frame -> no cameras observed 
+            landmark.second.obs.erase(remove_fcid);
+          }
+        }
+      }
+    }
+
     if (int(md.inliers.size()) < new_kf_min_inliers && !opt_running &&
         !opt_finished) {
       take_keyframe = true;
     }
 
     if (!opt_running && opt_finished) {
-      opt_thread->join();
+      opt_thread->join();  // wait for results from BA in optimization
       landmarks = landmarks_opt;
+
+      // remove no observed landmark from the landmarks
+      for (const auto& rfcid : removed_fcid_buffer) {
+        for (auto& landmark : landmarks) {
+          if (!cameras.count(rfcid)) {
+            landmark.second.obs.erase(rfcid);
+          }
+        }
+      }
+      removed_fcid_buffer.clear();
+
       cameras = cameras_opt;
       calib_cam = calib_cam_opt;
-
+       
+       if (use_imu) {
+          update_frame_states_from_opt(frame_states, frame_states_opt);
+      } else {
+        // Do nothing here
+      }
       opt_finished = false;
     }
 
@@ -1038,14 +1210,15 @@ void optimize() {
   }
 
   std::cerr << "Optimizing map with " << cameras.size() << " cameras, "
-            << landmarks.size() << " points and " << num_obs << " observations."
+            << landmarks.size() << " points " << num_obs << " observations, "
+            << frame_states_opt.size() << " imu state for optimization!"
             << std::endl;
 
   // Fix oldest two cameras to fix SE3 and scale gauge. Making the whole second
   // camera constant is a bit suboptimal, since we only need 1 DoF, but it's
   // simple and the initial poses should be good from calibration.
   FrameId fid = *(kf_frames.begin());
-  // std::cout << "fid " << fid << std::endl;
+  // std::cout << "fixed fid: " << fid << std::endl;
 
   // Prepare bundle adjustment
   BundleAdjustmentOptions ba_options;
@@ -1058,14 +1231,28 @@ void optimize() {
   calib_cam_opt = calib_cam;
   cameras_opt = cameras;
   landmarks_opt = landmarks;
-
+  if (use_imu) {
+    get_frame_states_opt(frame_states, frame_states_opt);  //size (frame_states_opt) = size(recent cameras)
+    std::cout<< "get frame states optimization !"<<std::endl;
+  } else {
+    // Do nothing here
+  }
+   //std::cout<<"optimize !"<<std::endl;
   opt_running = true;
 
   opt_thread.reset(new std::thread([fid, ba_options] {
-    std::set<FrameCamId> fixed_cameras = {{fid, 0}, {fid, 1}};
 
-    bundle_adjustment(feature_corners, ba_options, fixed_cameras, calib_cam_opt,
-                      cameras_opt, landmarks_opt);// optimize poses landmarks and intrisics
+  std::set<FrameCamId> fixed_cameras = {{fid, 0}, {fid, 1}};
+  if(use_imu){  // optimize poses landmarks and intrisics
+      std::cout << "start imu projection BA..." << std::endl;
+      Imu_Proj_bundle_adjustment(feature_corners, ba_options, fixed_cameras, calib_cam_opt,
+                                cameras_opt, landmarks_opt, frame_states_opt, imu_measurements,
+                                timestamps);
+      std::cout << "imu projection BA..." << std::endl;}
+      
+  else{                  
+      Proj_bundle_adjustment(feature_corners, ba_options, fixed_cameras, calib_cam_opt,
+                          cameras_opt, landmarks_opt);}
 
     opt_finished = true;
     opt_running = false;
@@ -1073,4 +1260,53 @@ void optimize() {
 
   // Update project info cache
   compute_projections();
+}
+
+void get_frame_states_opt(
+    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states,
+    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states_opt) {
+  frame_states_opt.clear();
+  //  for (auto it = kf_frames.begin(); it != kf_frames.end(); ++it) {
+  //    auto kf_id = *it;
+  //    frame_states_opt[timestamps[kf_id]] = frame_states[timestamps[kf_id]];
+  //  }
+  // int iter_counter = 0;
+  // auto iter = frame_states.rbegin();
+
+  // while (iter_counter < 3) {
+  //   //    std::cout << iter->first << std::endl;
+  //   //    if (iter_counter == 0) {
+  //   //      ASSERT_EQ(iter->first, 1403636763853555456);
+  //   //    }
+  //   //    if (iter_counter == 1) {
+  //   //      ASSERT_EQ(iter->first, 1403636763848555520);
+  //   //    }
+  //   //    if (iter_counter == 2) {
+  //   //      ASSERT_EQ(iter->first, 1403636763843555584);
+  //   //    }
+  //   frame_states_opt[iter->first] = iter->second;
+  //   ++iter;
+  //   iter_counter++;
+  // }
+  for (const auto& kv : recent_cameras) {
+    PoseVelState<double> frame_state;
+    frame_state.T_w_i =
+        kv.second.T_w_c;  // here we load T_w_c, we will do next transformation for the cost function
+          
+    frame_state.vel_w_i = frame_states[timestamps[kv.first.frame_id]].vel_w_i;
+    frame_state.t_ns = timestamps[kv.first.frame_id];
+    // frame_states_opt.emplace(
+    //     std::make_pair(timestamps[kv.first.frame_id], frame_state));
+    frame_states_opt[timestamps[kv.first.frame_id]] = frame_state;  
+  }
+}
+
+void update_frame_states_from_opt(
+    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states,
+    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states_opt) {
+  for (auto& it : frame_states_opt) {
+    frame_states[it.first] = it.second;
+    frame_states[it.first].T_w_i =
+        frame_states[it.first].T_w_i * calib_cam.T_i_c[0].inverse();
+  }
 }

@@ -183,7 +183,6 @@ private:
         Eigen::Vector3d accel_bias(Data[11], Data[12], Data[13]);
         Eigen::Vector3d gyro_bias(Data[14], Data[15], Data[16]);
 
-
         data->gt_timestamps.emplace_back(timestamp);
         data->gt_state_data.emplace_back(q, pos);
         }
@@ -199,17 +198,6 @@ private:
         if (line[0] == '#') continue;
 
         std::stringstream ss(line);
-
-        // char tmp;
-        // uint64_t timestamp;
-        // Eigen::Quaterniond q;
-        // Eigen::Vector3d pos;
-
-        // ss >> timestamp >> tmp >> pos[0] >> tmp >> pos[1] >> tmp >> pos[2] >>
-        //     tmp >> q.w() >> tmp >> q.x() >> tmp >> q.y() >> tmp >> q.z();
-
-        // data->gt_timestamps.emplace_back(timestamp);
-        // data->gt_pose_data.emplace_back(q, pos);
 
         char tmp;
         uint64_t timestamp;

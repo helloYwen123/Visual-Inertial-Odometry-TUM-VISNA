@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
+#include <visnav/preintegration_imu/preintegration.h>
 
 #include <Eigen/Dense>
 #include <sophus/se3.hpp>
@@ -115,5 +116,68 @@ struct BundleAdjustmentReprojectionCostFunctor {
   Eigen::Vector2d p_2d;
   std::string cam_model;
 };
+
+// Make the cost functor for the IMU
+struct BundleAdjustmentImuCostFunctor {
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  BundleAdjustmentImuCostFunctor(
+      //      const IntegratedImuMeasurement<double>& imu_meas,
+      const PoseVelState<double>& delta_state, const Eigen::Vector3d& g,
+      const Timestamp& state0_t_ns, const Timestamp& state1_t_ns,
+      const Sophus::SE3d T_i_c)  // might have to use int_64t if this breaks
+                                 //      : imu_meas(imu_meas),
+      : delta_state_(delta_state),
+        g(g),
+        state0_t_ns(state0_t_ns),
+        state1_t_ns(state1_t_ns),
+        T_c_i(T_i_c.inverse()) {}
+ 
+  PoseVelState<double> delta_state_;
+  Eigen::Vector3d g;
+  int64_t state0_t_ns;
+  int64_t state1_t_ns;
+  Sophus::SE3d T_c_i;
+  //IntegratedImuMeasurement<double> imu_meas;
+
+  template <class T>
+  bool operator()(T const* const sstate0_T_w_i, T const* const sstate1_T_w_i,
+                  T const* const sstate0_v_w_i, T const* const sstate1_v_w_i,
+                  T* sResiduals) const {
+
+    using Vec3 = Eigen::Matrix<T, 3, 1>;
+    using VecN = Eigen::Matrix<T, POSE_VEL_SIZE, 1>;
+    using Mat3 = Eigen::Matrix<T, 3, 3>;
+    
+    // Map inputs
+    Eigen::Map<Sophus::SE3<T> const> const state0_T_w_i(sstate0_T_w_i);
+    Eigen::Map<Sophus::SE3<T> const> const state1_T_w_i(sstate1_T_w_i);
+    Eigen::Map<Vec3 const> const state0_v_w_i(sstate0_v_w_i);
+    Eigen::Map<Vec3 const> const state1_v_w_i(sstate1_v_w_i);
+    Eigen::Map<VecN> residuals(sResiduals);
+
+
+
+    double dt = delta_state_.t_ns * (1e-9);
+    //    VecN res;
+    //    here State_T_W_I actually means pose of camera relative to world (T_W_C)
+    Mat3 R0_inv = (state0_T_w_i * T_c_i).so3().inverse().matrix();  // Transformation from Imu to World frame
+    Vec3 tmp = R0_inv * ((state1_T_w_i * T_c_i).translation() -
+                         (state0_T_w_i * T_c_i).translation() -
+                         state0_v_w_i * dt - (0.5) * g * dt * dt);  // motion model
+
+    residuals.template segment<3>(0) = tmp - (delta_state_.T_w_i.translation());  // translation residuals
+    residuals.template segment<3>(3) =    
+        (delta_state_.T_w_i.so3() * (state1_T_w_i * T_c_i).so3().inverse() * 
+         (state0_T_w_i * T_c_i).so3())
+            .log();    // rotation residual(from 0 -> wolrd -> w -> 1 & current rotation M of 1(from 1 -> world))
+            // inverse and results 
+
+    Vec3 tmp2 = R0_inv * (state1_v_w_i - state0_v_w_i - g * dt);
+    residuals.template segment<3>(6) = tmp2 - (delta_state_.vel_w_i); // velocity residual
+    return true;
+  }
+ 
+};
+
 
 }  // namespace visnav

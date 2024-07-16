@@ -143,8 +143,8 @@ add_custom_target(visnav_other SOURCES
 #add_executable(test_ceres_se3 src/test_ceres_se3.cpp)
 #target_link_libraries(test_ceres_se3 Ceres::ceres Sophus::Sophus)
 
-#add_executable(calibration src/calibration.cpp)
-#target_link_libraries(calibration Ceres::ceres Sophus::Sophus pango_display pango_image pango_plot pango_video TBB::tbb)
+# add_executable(calibration src/calibration.cpp)
+# target_link_libraries(calibration Ceres::ceres Sophus::Sophus pango_display pango_image pango_plot pango_video TBB::tbb)
 
 #add_executable(sfm src/sfm.cpp)
 #target_link_libraries(sfm Ceres::ceres Sophus::Sophus pango_display pango_image pango_plot pango_video TBB::tbb OpenCV opengv)
