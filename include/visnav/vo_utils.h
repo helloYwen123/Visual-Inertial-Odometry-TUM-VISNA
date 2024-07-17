@@ -351,6 +351,7 @@ bool remove_old_keyframes(const FrameCamId fcidl, const int max_num_kfs,
                           std::set<FrameId>& kf_frames, Camera& removed_camera,
                           FrameId& removed_fid) {
   kf_frames.emplace(fcidl.frame_id);
+  
   bool removed = false;   // remove elements from three containers : 1landmarks; 2cameras ; 3kf_frames;
 // TODO SHEET 5: Remove old cameras and observations if the number of keyframe
 // pairs (left and right image is a pair) is larger than max_num_kfs. The ids of
@@ -366,6 +367,8 @@ bool remove_old_keyframes(const FrameCamId fcidl, const int max_num_kfs,
   // check and keep the num of keyframes
   while (static_cast<int>(kf_frames.size()) > max_num_kfs) {
     // find and remove the oldest keyframe
+
+    std::cout<<"remove a camera from Cameras!"<<std::endl;
     removed = true;
     FrameId oldest_frame_id = *kf_frames.begin();
     removed_fid = oldest_frame_id;

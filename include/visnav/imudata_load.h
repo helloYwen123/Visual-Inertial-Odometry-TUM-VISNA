@@ -178,7 +178,7 @@ private:
 
         uint64_t timestamp = static_cast<uint64_t>(Data[0]);
         Eigen::Vector3d pos(Data[1], Data[2], Data[3]);
-        Eigen::Quaterniond q(Data[4], Data[5], Data[6], Data[7]);
+        Eigen::Quaterniond q(Data[4],Data[5], Data[6], Data[7]); //  qw qx qy qz
         Eigen::Vector3d vel(Data[8], Data[9], Data[10]);
         Eigen::Vector3d accel_bias(Data[11], Data[12], Data[13]);
         Eigen::Vector3d gyro_bias(Data[14], Data[15], Data[16]);

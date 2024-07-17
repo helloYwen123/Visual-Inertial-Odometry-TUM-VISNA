@@ -419,6 +419,7 @@ void Imu_Proj_bundle_adjustment(
       imu_measurements,
   std::vector<Timestamp>& timestamps) {
   ceres::Problem problem;
+  
   std::cout<< "cameras parameter block!!!"<<std::endl;
   for (auto& cam : cameras) {
     problem.AddParameterBlock(cam.second.T_w_c.data(),
@@ -429,6 +430,9 @@ void Imu_Proj_bundle_adjustment(
       problem.SetParameterBlockConstant(cam.second.T_w_c.data());
     }
   }
+
+ 
+
   std::cout<< "states parameter block!!!"<<std::endl;
   // add data imu (state of IMU) to ResidualsBlock
   for (auto& state : states) {
@@ -436,11 +440,11 @@ void Imu_Proj_bundle_adjustment(
                               Sophus::SE3d::num_parameters,
                               new Sophus::test::LocalParameterizationSE3);
   }
-
+  std::cout<< "add camera and states residuals block!!!"<<std::endl;
   for (auto& [track_id, landmark] : landmarks) {
     auto& p_3d = landmark.p;
     for (auto& [fcid, feature_id] : landmark.obs) {
-      
+
       const auto& p_2d = feature_corners.at(fcid).corners[feature_id];
       BundleAdjustmentReprojectionCostFunctor* c =
           new BundleAdjustmentReprojectionCostFunctor(
@@ -449,42 +453,34 @@ void Imu_Proj_bundle_adjustment(
           BundleAdjustmentReprojectionCostFunctor, 2,
           Sophus::SE3d::num_parameters, 3, 8>(c);
 
-        if (cameras.count(fcid)) { 
-          std::cout<< "camera residuals block!!!"<<std::endl; // 'cameras list' has frame&camera id then optimize camera location
-          problem.AddResidualBlock(
-              cost_function,
-              options.use_huber ? new ceres::HuberLoss(options.huber_parameter) : nullptr,
-              cameras.at(fcid).T_w_c.data(), p_3d.data(),
-              calib_cam.intrinsics[fcid.cam_id]->data());
-        } else {
-          std::cout<< "state residuals block!!!"<<std::endl; 
-          problem.AddResidualBlock( // 'cameras list' has no frame&camera id then optimize imu location
-              cost_function,
-              options.use_huber ? new ceres::HuberLoss(options.huber_parameter) : nullptr,
-              states.at(timestamps[fcid.frame_id]).T_w_i.data(), p_3d.data(),
-              calib_cam.intrinsics[fcid.cam_id]->data());
-        }
-
+      if (cameras.count(fcid)) { 
+          // 'cameras list' has frame&camera id then optimize camera location
+        problem.AddResidualBlock(
+            cost_function,
+            options.use_huber ? new ceres::HuberLoss(options.huber_parameter) : nullptr,
+            cameras[fcid].T_w_c.data(), p_3d.data(),
+            calib_cam.intrinsics[fcid.cam_id]->data());
+      } 
+      else if (states.count(timestamps[fcid.frame_id]))
+      {
+        problem.AddResidualBlock( // 'cameras list' has no frame&camera id then optimize imu location
+            cost_function,
+            options.use_huber ? new ceres::HuberLoss(options.huber_parameter) : nullptr,
+            states[timestamps[fcid.frame_id]].T_w_i.data(), p_3d.data(),
+            calib_cam.intrinsics[fcid.cam_id]->data());
       }
+      else
+      {std::cout<< fcid << " neither in cameras nor in states!!!"<<std::endl;}
+    if(!options.optimize_intrinsics){problem.SetParameterBlockConstant(calib_cam.intrinsics[fcid.cam_id]->data());}
+
     }
+  }
+
     
 
   // Add the parameter block first
   if (states.size() == 3) {
     std::cout<< "imu BA ing!"<<std::endl;
-   
-
-    // auto iter = states.rbegin();
-    // int iter_counter = 0;
-    // while (iter_counter < 3) {
-    //     std::cout<<"add parameter block!!! "<<std::endl;
-    //     visnav::PoseVelState<double>& state = states[iter->first];
-    //     problem.AddParameterBlock(state.T_w_i.data(), Sophus::SE3d::num_parameters,
-    //                               new Sophus::test::LocalParameterizationSE3);
-
-    //     ++iter;
-    //     iter_counter++;
-    // }
     //reset
     auto iter = states.rbegin();
     int iter_counter = 0;
@@ -518,7 +514,6 @@ void Imu_Proj_bundle_adjustment(
   }
   else{std::cout<<"Error! The num of processed states isn't 3"<<std::endl;}
 
-
   if (!options.optimize_intrinsics) {
     // Keep the intrinsics fixed
     problem.SetParameterBlockConstant(calib_cam.intrinsics[0]->data());
@@ -544,6 +539,5 @@ void Imu_Proj_bundle_adjustment(
       break;
   }
 }
-
 
 }  // namespace visnav

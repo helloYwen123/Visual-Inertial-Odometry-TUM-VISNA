@@ -95,7 +95,7 @@ void get_frame_states_opt(
 bool next_step();
 void optimize();
 void compute_projections();
-
+void saveTrajectoryButton();
 ///////////////////////////////////////////////////////////////////////////////
 /// Constants
 ///////////////////////////////////////////////////////////////////////////////
@@ -181,11 +181,12 @@ Cameras recent_cameras;
 
 //Ground Truth timestamp and pose
 std::vector<Timestamp> gt_t_ns;
-std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>
+std::vector<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d>>
     gt_t_w_i;
 // record vio's Trajectory
-std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>
+std::vector<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d>>
     vio_t_w_i;
+
 std::vector<Timestamp> vio_t_ns;
 /// cashed info on reprojected landmarks; recomputed every time time from
 /// cameras, landmarks, and feature_tracks; used for visualization and
@@ -272,6 +273,7 @@ pangolin::Var<bool> continue_next("ui.continue_next", false, true);
 using Button = pangolin::Var<std::function<void(void)>>;
 
 Button next_step_btn("ui.next_step", &next_step);
+Button save_traj_btn("ui.save_traj", &saveTrajectoryButton);
 
 ///////////////////////////////////////////////////////////////////////////////
 /// GUI and Boilerplate Implementation
@@ -414,7 +416,7 @@ int main(int argc, char** argv) {
       }
 
       pangolin::FinishFrame();
-
+      int count = 0;
       if (continue_next) {
         // stop if there is nothing left to do
         continue_next = next_step();
@@ -425,11 +427,12 @@ int main(int argc, char** argv) {
     }
   } else {
     // non-gui mode: Process all frames, then exit
+
     while (next_step()) {
       // nop
     }
   }
-
+  saveTrajectoryButton();
   return 0;
 }
 
@@ -841,7 +844,7 @@ void load_data(const std::string& dataset_path, const std::string& calib_path) {
   for (size_t i = 0; i < dataset_io->get_data()->get_gt_state_data().size();
        i++) {
     gt_t_ns.push_back(dataset_io->get_data()->get_gt_timestamps()[i]);
-    gt_t_w_i.push_back(dataset_io->get_data()->get_gt_state_data()[i].translation());  // subset named groundtruth estimation
+    gt_t_w_i.push_back(dataset_io->get_data()->get_gt_state_data()[i]);  // subset named groundtruth estimation
   }
 
   std::cout << "Successfully loaded " << gt_t_w_i.size()<< " ground-true data "
@@ -1023,7 +1026,7 @@ bool next_step() {
     if (removed) {
       Sophus::SE3d T_w_i = removed_camera.T_w_c * calib_cam.T_i_c[0].inverse();
       vio_t_ns.push_back(timestamps[removed_fid]);
-      vio_t_w_i.push_back(T_w_i.translation());    //imu frame's T relative to world frame and timestamp
+      vio_t_w_i.push_back(T_w_i);    //imu frame's T relative to world frame and timestamp
     }
     optimize();
 
@@ -1088,29 +1091,26 @@ bool next_step() {
           // do nothing
         }
       }
-
       if (recent_cameras.size() > num_latest_frames) {
-        FrameId oldest_frame = 1000000;  // in 1000000 frames ;
-        // update oldest frame and removed frame from front to end
-        FrameCamId remove_fcid;
-        for (const auto& kv : recent_cameras) {
-          if (kv.first.frame_id < oldest_frame) {
-            oldest_frame = kv.first.frame_id;
-            remove_fcid = kv.first;
-          } else {
-            // do nothing
+          FrameId oldest_frame = 1000000;
+          FrameCamId remove_fcid;
+          for (const auto& kv : recent_cameras) {
+            if (kv.first.frame_id < oldest_frame) {
+              oldest_frame = kv.first.frame_id;
+              remove_fcid = kv.first;
+            } else {
+              // nop
+            }
+          }
+          // remove the oldest frames
+          recent_cameras.erase(remove_fcid);
+          removed_fcid_buffer.push_back(remove_fcid);
+          for (auto& tid_lm : landmarks) {
+            if (!cameras.count(remove_fcid)) {
+              tid_lm.second.obs.erase(remove_fcid);
+            }
           }
         }
-
-        // always remove the oldest frames from cameras container(larger than num)
-        recent_cameras.erase(remove_fcid);
-        removed_fcid_buffer.push_back(remove_fcid);
-        for (auto& landmark : landmarks) {
-          if (!cameras.count(remove_fcid)) {  // this frame -> no cameras observed 
-            landmark.second.obs.erase(remove_fcid);
-          }
-        }
-      }
     }
 
     if (int(md.inliers.size()) < new_kf_min_inliers && !opt_running &&
@@ -1164,20 +1164,22 @@ void compute_projections() {
       const FrameCamId& fcid = kv_obs.first;
       const Eigen::Vector2d p_2d_corner =
           feature_corners.at(fcid).corners[kv_obs.second];
+      if (cameras.count(fcid)) {
+        const Eigen::Vector3d p_c =
+            cameras.at(fcid).T_w_c.inverse() * kv_lm.second.p;
+        const Eigen::Vector2d p_2d_repoj =
+            calib_cam.intrinsics.at(fcid.cam_id)->project(p_c);
 
-      const Eigen::Vector3d p_c =
-          cameras.at(fcid).T_w_c.inverse() * kv_lm.second.p;
-      const Eigen::Vector2d p_2d_repoj =
-          calib_cam.intrinsics.at(fcid.cam_id)->project(p_c);
 
-      ProjectedLandmarkPtr proj_lm(new ProjectedLandmark);
-      proj_lm->track_id = track_id;
-      proj_lm->point_measured = p_2d_corner;
-      proj_lm->point_reprojected = p_2d_repoj;
-      proj_lm->point_3d_c = p_c;
-      proj_lm->reprojection_error = (p_2d_corner - p_2d_repoj).norm();
+        ProjectedLandmarkPtr proj_lm(new ProjectedLandmark);
+        proj_lm->track_id = track_id;
+        proj_lm->point_measured = p_2d_corner;
+        proj_lm->point_reprojected = p_2d_repoj;
+        proj_lm->point_3d_c = p_c;
+        proj_lm->reprojection_error = (p_2d_corner - p_2d_repoj).norm();
 
-      image_projections[fcid].obs.push_back(proj_lm);
+        image_projections[fcid].obs.push_back(proj_lm);
+      }
     }
 
     for (const auto& kv_obs : kv_lm.second.outlier_obs) {
@@ -1185,19 +1187,21 @@ void compute_projections() {
       const Eigen::Vector2d p_2d_corner =
           feature_corners.at(fcid).corners[kv_obs.second];
 
-      const Eigen::Vector3d p_c =
-          cameras.at(fcid).T_w_c.inverse() * kv_lm.second.p;
-      const Eigen::Vector2d p_2d_repoj =
-          calib_cam.intrinsics.at(fcid.cam_id)->project(p_c);
+      if (cameras.count(fcid)) {
+        const Eigen::Vector3d p_c =
+            cameras.at(fcid).T_w_c.inverse() * kv_lm.second.p;
+        const Eigen::Vector2d p_2d_repoj =
+            calib_cam.intrinsics.at(fcid.cam_id)->project(p_c);
 
-      ProjectedLandmarkPtr proj_lm(new ProjectedLandmark);
-      proj_lm->track_id = track_id;
-      proj_lm->point_measured = p_2d_corner;
-      proj_lm->point_reprojected = p_2d_repoj;
-      proj_lm->point_3d_c = p_c;
-      proj_lm->reprojection_error = (p_2d_corner - p_2d_repoj).norm();
+        ProjectedLandmarkPtr proj_lm(new ProjectedLandmark);
+        proj_lm->track_id = track_id;
+        proj_lm->point_measured = p_2d_corner;
+        proj_lm->point_reprojected = p_2d_repoj;
+        proj_lm->point_3d_c = p_c;
+        proj_lm->reprojection_error = (p_2d_corner - p_2d_repoj).norm();
 
-      image_projections[fcid].outlier_obs.push_back(proj_lm);
+        image_projections[fcid].outlier_obs.push_back(proj_lm);
+      }  
     }
   }
 }
@@ -1248,7 +1252,7 @@ void optimize() {
       Imu_Proj_bundle_adjustment(feature_corners, ba_options, fixed_cameras, calib_cam_opt,
                                 cameras_opt, landmarks_opt, frame_states_opt, imu_measurements,
                                 timestamps);
-      std::cout << "imu projection BA..." << std::endl;}
+      std::cout << "imu projection BA end..." << std::endl;}
       
   else{                  
       Proj_bundle_adjustment(feature_corners, ba_options, fixed_cameras, calib_cam_opt,
@@ -1266,32 +1270,10 @@ void get_frame_states_opt(
     Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states,
     Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states_opt) {
   frame_states_opt.clear();
-  //  for (auto it = kf_frames.begin(); it != kf_frames.end(); ++it) {
-  //    auto kf_id = *it;
-  //    frame_states_opt[timestamps[kf_id]] = frame_states[timestamps[kf_id]];
-  //  }
-  // int iter_counter = 0;
-  // auto iter = frame_states.rbegin();
-
-  // while (iter_counter < 3) {
-  //   //    std::cout << iter->first << std::endl;
-  //   //    if (iter_counter == 0) {
-  //   //      ASSERT_EQ(iter->first, 1403636763853555456);
-  //   //    }
-  //   //    if (iter_counter == 1) {
-  //   //      ASSERT_EQ(iter->first, 1403636763848555520);
-  //   //    }
-  //   //    if (iter_counter == 2) {
-  //   //      ASSERT_EQ(iter->first, 1403636763843555584);
-  //   //    }
-  //   frame_states_opt[iter->first] = iter->second;
-  //   ++iter;
-  //   iter_counter++;
-  // }
   for (const auto& kv : recent_cameras) {
     PoseVelState<double> frame_state;
     frame_state.T_w_i =
-        kv.second.T_w_c;  // here we load T_w_c, we will do next transformation for the cost function
+        kv.second.T_w_c; // here we load T_w_c, we will do next transformation for the cost function
           
     frame_state.vel_w_i = frame_states[timestamps[kv.first.frame_id]].vel_w_i;
     frame_state.t_ns = timestamps[kv.first.frame_id];
@@ -1309,4 +1291,53 @@ void update_frame_states_from_opt(
     frame_states[it.first].T_w_i =
         frame_states[it.first].T_w_i * calib_cam.T_i_c[0].inverse();
   }
+}
+
+void saveTrajectoryButton() {
+  
+  for (auto& fid : kf_frames) {
+    FrameCamId temp_fcid(fid, 0);
+    vio_t_ns.push_back(timestamps[fid]);
+    vio_t_w_i.push_back(
+        (cameras.at(temp_fcid).T_w_c * calib_cam.T_i_c[0].inverse()));
+  }
+    if(use_imu){
+          std::ofstream os("tum_benchmark_tools/vio_trajectory.txt");
+
+          for (size_t i = 0; i < vio_t_ns.size(); i++) {
+              const Sophus::SE3d& pose = vio_t_w_i[i];
+              os << std::scientific << std::setprecision(18) << vio_t_ns[i] << " "
+                << pose.translation().x() << " " << pose.translation().y() << " "
+                << pose.translation().z() << " " << pose.unit_quaternion().x() << " "
+                << pose.unit_quaternion().y() << " "<< pose.unit_quaternion().z() << " "
+                << pose.unit_quaternion().w() << std::endl;
+          }
+    }
+    else{
+          std::ofstream os("tum_benchmark_tools/vo_trajectory.txt");
+
+          for (size_t i = 0; i < vio_t_ns.size(); i++) {
+              const Sophus::SE3d& pose = vio_t_w_i[i];
+              os << std::scientific << std::setprecision(18) << vio_t_ns[i] << " "
+                << pose.translation().x() << " " << pose.translation().y() << " "
+                << pose.translation().z() << " " << pose.unit_quaternion().x() << " "
+                << pose.unit_quaternion().y() << " "<< pose.unit_quaternion().z() << " "
+                << pose.unit_quaternion().w() << std::endl;
+          }
+    }
+          std::ofstream os("tum_benchmark_tools/gt_trajectory.txt");
+
+          for (size_t i = 0; i < gt_t_ns.size(); i++) {
+              const Sophus::SE3d& pose = gt_t_w_i[i];
+              os << std::scientific << std::setprecision(18) << gt_t_ns[i] << " "
+                << pose.translation().x() << " " << pose.translation().y() << " "
+                << pose.translation().z() << " " << pose.unit_quaternion().x() << " "
+                << pose.unit_quaternion().y() << " "<< pose.unit_quaternion().z() << " "
+                << pose.unit_quaternion().w() << std::endl;
+          }
+
+
+    std::cout << "Saved trajectory in Euroc Dataset format in trajectory.txt"
+              << std::endl;
+
 }
