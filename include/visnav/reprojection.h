@@ -166,15 +166,17 @@ struct BundleAdjustmentImuCostFunctor {
                          state0_v_w_i * dt - (0.5) * g * dt * dt);  // motion model
 
     residuals.template segment<3>(0) = tmp - (delta_state_.T_w_i.translation());  // translation residuals
-    residuals.template segment<3>(3) =    
-        (delta_state_.T_w_i.so3() * (state1_T_w_i * T_c_i).so3().inverse() * 
-         (state0_T_w_i * T_c_i).so3())
-            .log();    // rotation residual(from 0 -> wolrd -> w -> 1 & current rotation M of 1(from 1 -> world))
-            // inverse and results 
+    // residuals.template segment<3>(3) =    
+    //     (delta_state_.T_w_i.so3() * (state1_T_w_i * T_c_i).so3().inverse() * 
+    //      (state0_T_w_i * T_c_i).so3())
+    //         .log();    // rotation residual(from 0 -> wolrd -> w -> 1 & current rotation M of 1(from 1 -> world))
+    //         // inverse and results 
 
-    Vec3 tmp2 = R0_inv * (state1_v_w_i - state0_v_w_i - g * dt);
-    residuals.template segment<3>(6) = tmp2 - (delta_state_.vel_w_i); // velocity residual
+    // Vec3 tmp2 = R0_inv * (state1_v_w_i - state0_v_w_i - g * dt);
+    // residuals.template segment<3>(6) = tmp2 - (delta_state_.vel_w_i); // velocity residual
+    std::cout<<residuals<<std::endl;
     return true;
+    
   }
  
 };
