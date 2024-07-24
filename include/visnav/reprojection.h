@@ -117,6 +117,31 @@ struct BundleAdjustmentReprojectionCostFunctor {
   std::string cam_model;
 };
 
+
+///////////////////////////////////////////////
+struct BundleAdjustmentImuCamstateCostFunctor {
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  BundleAdjustmentImuCamstateCostFunctor(const PoseVelState<double>& imu_state,
+                                        const Sophus::SE3d T_i_c)
+      : imu_state_(imu_state), T_c_i(T_i_c.inverse()) {}
+
+  PoseVelState<double> imu_state_;
+  Sophus::SE3d T_c_i;
+
+  template <class T>
+  bool operator()(T const* const sT_w_c, T* sResiduals) const {
+    Eigen::Map<Sophus::SE3<T> const> const sCam_T_w_c(sT_w_c);
+    Eigen::Map<Eigen::Matrix<T, Sophus::SE3d::DoF, 1>> residuals(sResiduals);
+
+    residuals.template segment<3>(0) = (sCam_T_w_c).translation() - ((imu_state_.T_w_i).translation());
+    residuals.template segment<3>(3) = ((sCam_T_w_c).so3() * (imu_state_.T_w_i ).so3().inverse()).log();
+    //std::cout << residuals << std::endl;
+    return true;
+  }
+
+};
+/////////////////////////////////////////////////
+
 // Make the cost functor for the IMU
 struct BundleAdjustmentImuCostFunctor {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -155,26 +180,22 @@ struct BundleAdjustmentImuCostFunctor {
     Eigen::Map<Vec3 const> const state1_v_w_i(sstate1_v_w_i);
     Eigen::Map<VecN> residuals(sResiduals);
 
-
-
     double dt = delta_state_.t_ns * (1e-9);
-    //    VecN res;
     //    here State_T_W_I actually means pose of camera relative to world (T_W_C)
-    Mat3 R0_inv = (state0_T_w_i * T_c_i).so3().inverse().matrix();  // Transformation from Imu to World frame
-    Vec3 tmp = R0_inv * ((state1_T_w_i * T_c_i).translation() -
+    Mat3 RO_w_i0_inv = (state0_T_w_i * T_c_i).so3().inverse().matrix();  // Rotation from Imu0 to World frame
+    Vec3 tmp = RO_w_i0_inv * ((state1_T_w_i * T_c_i).translation() -
                          (state0_T_w_i * T_c_i).translation() -
                          state0_v_w_i * dt - (0.5) * g * dt * dt);  // motion model
 
     residuals.template segment<3>(0) = tmp - (delta_state_.T_w_i.translation());  // translation residuals
-    // residuals.template segment<3>(3) =    
-    //     (delta_state_.T_w_i.so3() * (state1_T_w_i * T_c_i).so3().inverse() * 
-    //      (state0_T_w_i * T_c_i).so3())
-    //         .log();    // rotation residual(from 0 -> wolrd -> w -> 1 & current rotation M of 1(from 1 -> world))
-    //         // inverse and results 
+    residuals.template segment<3>(3) =    
+        (delta_state_.T_w_i.so3() * (state1_T_w_i * T_c_i).so3().inverse() * 
+         (state0_T_w_i * T_c_i).so3())
+            .log();    // rotation residual(from 0 -> wolrd -> w -> 1 & current rotation M of 1(from 1 -> world)) ; Result should be identity 
+    Vec3 tmp2 = RO_w_i0_inv * (state1_v_w_i - state0_v_w_i - g * dt);
+    residuals.template segment<3>(6) = tmp2 - (delta_state_.vel_w_i); // velocity residual
 
-    // Vec3 tmp2 = R0_inv * (state1_v_w_i - state0_v_w_i - g * dt);
-    // residuals.template segment<3>(6) = tmp2 - (delta_state_.vel_w_i); // velocity residual
-    std::cout<<residuals<<std::endl;
+    //std::cout<<residuals<<std::endl;
     return true;
     
   }

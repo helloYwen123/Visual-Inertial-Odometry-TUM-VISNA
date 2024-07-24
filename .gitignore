@@ -6,7 +6,7 @@ thirdparty/build-*
 data/V1_01_easy/
 data/MH_01_easy/
 data/MH_02_easy/
-data/dataset-corridor4_512_16/
+data/*
 
 *.cereal
 .DS_Store

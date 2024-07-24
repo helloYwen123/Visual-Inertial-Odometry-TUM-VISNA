@@ -339,7 +339,10 @@ struct BundleAdjustmentOptions {
   double huber_parameter = 1.0;
 
   /// maximum number of solver iterations
-  int max_num_iterations = 20;
+  int max_num_iterations = 25;
+
+  /// imu optimization weight
+  double imu_optimization_weight = 0.4;
 };
 
 // Run bundle adjustment to optimize cameras, points, and optionally intrinsics
@@ -418,9 +421,13 @@ void Imu_Proj_bundle_adjustment(
   Eigen::aligned_map<Timestamp, IntegratedImuMeasurement<double>>&
       imu_measurements,
   std::vector<Timestamp>& timestamps) {
+  // set up ceres problem
   ceres::Problem problem;
-  
-  std::cout<< "cameras parameter block!!!"<<std::endl;
+
+//////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////
+  std::cout<< "Add cameras parameter block!!!"<<std::endl;
   for (auto& cam : cameras) {
     problem.AddParameterBlock(cam.second.T_w_c.data(),
                               Sophus::SE3d::num_parameters,
@@ -431,16 +438,18 @@ void Imu_Proj_bundle_adjustment(
     }
   }
 
- 
-
-  std::cout<< "states parameter block!!!"<<std::endl;
+  std::cout<< "Add states parameter block!!!"<<std::endl;
   // add data imu (state of IMU) to ResidualsBlock
   for (auto& state : states) {
     problem.AddParameterBlock(state.second.T_w_i.data(),
                               Sophus::SE3d::num_parameters,
                               new Sophus::test::LocalParameterizationSE3);
   }
-  std::cout<< "add camera and states residuals block!!!"<<std::endl;
+
+//////////////////////////////////////////////////////////////
+std::cout<< "Add camera and states residuals block !"<<std::endl;
+//////////////////////////////////////////////////////////////
+  
   for (auto& [track_id, landmark] : landmarks) {
     auto& p_3d = landmark.p;
     for (auto& [fcid, feature_id] : landmark.obs) {
@@ -461,58 +470,96 @@ void Imu_Proj_bundle_adjustment(
             cameras[fcid].T_w_c.data(), p_3d.data(),
             calib_cam.intrinsics[fcid.cam_id]->data());
       } 
-      else if (states.count(timestamps[fcid.frame_id]))
-      {
-        problem.AddResidualBlock( // 'cameras list' has no frame&camera id then optimize imu location
-            cost_function,
-            options.use_huber ? new ceres::HuberLoss(options.huber_parameter) : nullptr,
-            states[timestamps[fcid.frame_id]].T_w_i.data(), p_3d.data(),
-            calib_cam.intrinsics[fcid.cam_id]->data());
-      }
       else
-      {std::cout<< fcid << " neither in cameras nor in states!!!"<<std::endl;}
-    if(!options.optimize_intrinsics){problem.SetParameterBlockConstant(calib_cam.intrinsics[fcid.cam_id]->data());}
-
+      {std::cout<< fcid << " isn't in Cameras!!!"<<std::endl;}
     }
   }
 
-    
+//////////////////////////////////////////////////////////////
+ std::cout<< "KF cameras BA with IMU Measurement !"<<std::endl;
+//////////////////////////////////////////////////////////////
 
+  for(auto& state: states){
+    auto it = std::find(timestamps.begin(), timestamps.end(), state.first);
+    if (it != timestamps.end()) {
+        int Fid = std::distance(timestamps.begin(), it);
+ 
+        FrameCamId camlid(Fid, 0);
+        std::cout << "Found corresponding FramdcamID: "<< camlid << std::endl;
+
+        if(cameras.count(camlid)){
+          BundleAdjustmentImuCamstateCostFunctor* cam_imu_cost =
+              new BundleAdjustmentImuCamstateCostFunctor(
+                  state.second, calib_cam.T_i_c[0]);
+  
+          ceres::CostFunction* cost_function = new ceres::AutoDiffCostFunction<
+              BundleAdjustmentImuCamstateCostFunctor, Sophus::SE3d::DoF,
+              Sophus::SE3d::num_parameters
+              >(cam_imu_cost);
+            
+          ceres::LossFunction* loss_function = nullptr;
+
+          if (options.use_huber) {
+            loss_function = new ceres::HuberLoss(options.huber_parameter);
+          }
+          problem.AddResidualBlock(
+              cost_function,
+              new ceres::ScaledLoss(loss_function, options.imu_optimization_weight, ceres::TAKE_OWNERSHIP), // introduce weight for effect of IMU BA
+              cameras[camlid].T_w_c.data()
+          );
+        }
+    } else {
+        std::cout << "FramdcamID is fixed Camid from previous KF"<< std::endl;
+    }
+  }
+  
+
+//////////////////////////////////////////////////////////////
+  std::cout<< "imu BA ing!"<<std::endl;
+//////////////////////////////////////////////////////////////
   // Add the parameter block first
-  if (states.size() == 3) {
-    std::cout<< "imu BA ing!"<<std::endl;
+  if (states.size() >= 3) {
     //reset
     auto iter = states.rbegin();
-    int iter_counter = 0;
-   while (iter_counter < 2) {
-        std::cout<<"add residuals block!!! "<<std::endl;
-        const IntegratedImuMeasurement<double>& imu_meas = imu_measurements[iter->first];
-        visnav::PoseVelState<double>& state1 = states[iter->first];
-        ++iter;
-        visnav::PoseVelState<double>& state0 = states[iter->first];
+    std::size_t iter_counter = 0;
 
-        BundleAdjustmentImuCostFunctor* imu_c = new BundleAdjustmentImuCostFunctor(
-            imu_meas.getDeltaState(), visnav::constants::g, state0.t_ns, state1.t_ns,
-            calib_cam.T_i_c[0]);
-        ceres::CostFunction* imu_cost_function = new ceres::AutoDiffCostFunction<
-            BundleAdjustmentImuCostFunctor, 9,
-            Sophus::SE3d::num_parameters,  // state0.T_w_i
-            Sophus::SE3d::num_parameters,  // state1.T_w_i
-            3,                             // state0.vel_w_i
-            3                              // state1.vel_w_i
-            >(imu_c);
+    while (iter_counter < (states.size() - 1)) {
+      const IntegratedImuMeasurement<double>& imu_meas = imu_measurements[iter->first];
+      visnav::PoseVelState<double>& state1 = states[iter->first];
+      double st1 = (iter->first) * 1e-9;
+      ++iter;
+      double st0 = (iter->first) * 1e-9;
+      visnav::PoseVelState<double>& state0 = states[iter->first];
+      double diff_t = st1 - st0;
+      //std::cout<< "time difference : " << diff_t << std::endl;
+      if(diff_t > 2.5){
+        std::cout<< "The interval of consecutive keyframes is unexpected !!! Optimization skipping ! "<< std::endl;
+        continue;
+      }
 
+      BundleAdjustmentImuCostFunctor* imu_c = new BundleAdjustmentImuCostFunctor(
+          imu_meas.getDeltaState(), visnav::constants::g, state0.t_ns, state1.t_ns,
+          calib_cam.T_i_c[0]);
+      ceres::CostFunction* imu_cost_function = new ceres::AutoDiffCostFunction<
+          BundleAdjustmentImuCostFunctor, 9,
+          Sophus::SE3d::num_parameters,  // state0.T_w_i
+          Sophus::SE3d::num_parameters,  // state1.T_w_i
+          3,                             // state0.vel_w_i
+          3                              // state1.vel_w_i                            
+          >(imu_c);
       problem.AddResidualBlock(
           imu_cost_function, 
           options.use_huber ? new ceres::HuberLoss(options.huber_parameter) : nullptr,
           state0.T_w_i.data(), state1.T_w_i.data(), state0.vel_w_i.data(),
           state1.vel_w_i.data());
-
+      
       iter_counter++;
-     
+
     }
   }
-  else{std::cout<<"Error! The num of processed states isn't 3"<<std::endl;}
+  else{
+    std::cout<<" The num of processed states is smaller than 3 !!! "<<std::endl;
+  }
 
   if (!options.optimize_intrinsics) {
     // Keep the intrinsics fixed
@@ -521,6 +568,7 @@ void Imu_Proj_bundle_adjustment(
   } else {
     // Do nothing
   }
+
 
   // Solve
   ceres::Solver::Options ceres_options;
