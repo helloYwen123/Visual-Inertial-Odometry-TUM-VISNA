@@ -342,7 +342,7 @@ struct BundleAdjustmentOptions {
   int max_num_iterations = 22;
 
   /// imu optimization weight
-  double imu_optimization_weight = 0.4;
+  double imu_optimization_weight = 0.25;
 };
 
 // Run bundle adjustment to optimize cameras, points, and optionally intrinsics
@@ -496,10 +496,16 @@ void Imu_Proj_bundle_adjustment(
               Sophus::SE3d::num_parameters,
               Sophus::SE3d::num_parameters
               >(cam_imu_cost);
-            
+
+          ceres::LossFunction* loss_function = nullptr;
+
+          if (options.use_huber) {
+            loss_function = new ceres::HuberLoss(options.huber_parameter);
+
+          }  
           problem.AddResidualBlock(
               cost_function,
-              options.use_huber ? new ceres::HuberLoss(options.huber_parameter) : nullptr,
+              new ceres::ScaledLoss(loss_function, options.imu_optimization_weight, ceres::TAKE_OWNERSHIP), // introduce weight for effect of IMU BA
               cameras[camlid].T_w_c.data(), state.second.T_w_i.data()
           );
         }
@@ -527,7 +533,7 @@ void Imu_Proj_bundle_adjustment(
       visnav::PoseVelState<double>& state0 = states[iter->first];
       double diff_t = st1 - st0;
       //std::cout<< "time difference : " << diff_t << std::endl;
-      if(diff_t > 2.75){
+      if(diff_t > 2.5){
         //std::cout<< "The interval of consecutive keyframes is unexpected !!! Optimization skipping ! "<< std::endl;
         continue;
       }
