@@ -119,8 +119,8 @@ std::set<FrameId> kf_frames;
 
 std::shared_ptr<std::thread> opt_thread;
 
-///the num that is allowed to exist in the map (default size: 13)
-size_t num_latest_frames = 13; 
+///the num that is allowed to exist in the map (default size: 10)
+size_t num_latest_frames = 10; 
 std::vector<FrameCamId> removed_fcid_buffer;
 
 /// intrinsic calibration
@@ -1000,8 +1000,8 @@ bool next_step() {
     project_landmarks(current_pose, calib_cam.intrinsics[0], landmarks,
                       cam_z_threshold, projected_points, projected_track_ids); // project landmarks into the frame of initial camera; but where is landmark from?
 
-    std::cout << "KF Projected " << projected_track_ids.size() << " points."
-              << std::endl;
+    // std::cout << "KF Projected " << projected_track_ids.size() << " points."
+    //           << std::endl;
 
     MatchData md_stereo;
     KeypointsData kdl, kdr;
@@ -1026,8 +1026,8 @@ bool next_step() {
     findInliersEssential(kdl, kdr, calib_cam.intrinsics[0],
                          calib_cam.intrinsics[1], E, 1e-3, md_stereo); // through epipolar constraint to get inliers
 
-    std::cout << "KF Found " << md_stereo.inliers.size() << " 2d stereo-matches."
-              << std::endl;
+    // std::cout << "KF Found " << md_stereo.inliers.size() << " 2d stereo-matches."
+    //           << std::endl;
 
     feature_corners[fcidl] = kdl;
     feature_corners[fcidr] = kdr;
@@ -1040,7 +1040,7 @@ bool next_step() {
                            feature_match_max_dist, feature_match_test_next_best,
                            md);
 
-    std::cout << "KF Found " << md.matches.size() << " 3d-2d landmarks matches." << std::endl;
+    //std::cout << "KF Found " << md.matches.size() << " 3d-2d landmarks matches." << std::endl;
 
     localize_camera(current_pose, calib_cam.intrinsics[0], kdl, landmarks,
                     reprojection_error_pnp_inlier_threshold_pixel, md);
@@ -1053,7 +1053,7 @@ bool next_step() {
 
     if (use_imu) {
           recent_kf_cameras[fcidl].T_w_c = current_pose; // recent cameras : KeyFrame cameras 
-          std::cout<< "add recent KF camera!! "<< std::endl;
+          //std::cout<< "add recent KF camera!! "<< std::endl;
 
           if (recent_kf_cameras.size() > num_latest_frames) {
               FrameId oldest_frame = std::numeric_limits<FrameId>::max();
@@ -1066,14 +1066,11 @@ bool next_step() {
                   // nop
                 }
               }
+
               // remove the oldest frames
               recent_kf_cameras.erase(remove_fcid);
               removed_fcid_buffer.push_back(remove_fcid);
-              for (auto& landmark : landmarks) {
-                if (!cameras.count(remove_fcid)) {
-                  landmark.second.obs.erase(remove_fcid);
-                }
-              }
+
             }
     }
 
@@ -1118,8 +1115,8 @@ bool next_step() {
     project_landmarks(current_pose, calib_cam.intrinsics[0], landmarks,
                       cam_z_threshold, projected_points, projected_track_ids);
 
-    std::cout << "(no KF)Projected " << projected_track_ids.size() << " points."
-              << std::endl;
+    // std::cout << "(no KF)Projected " << projected_track_ids.size() << " points."
+    //           << std::endl;
 
 
     ///  only take and handle left camera only in (no take key frame) this frame 
@@ -1138,7 +1135,7 @@ bool next_step() {
                            feature_match_max_dist, feature_match_test_next_best,
                            md);
 
-    std::cout << "Found " << md.matches.size() << " matches." << std::endl;
+    //std::cout << "Found " << md.matches.size() << " matches." << std::endl;
 
     localize_camera(current_pose, calib_cam.intrinsics[0], kdl, landmarks,
                     reprojection_error_pnp_inlier_threshold_pixel, md);
@@ -1155,15 +1152,8 @@ bool next_step() {
       opt_thread->join();  // wait for results from BA in optimization
 
       landmarks = landmarks_opt;
-       // remove observation from the landmarks
-      for (const auto& rfcid : removed_fcid_buffer) {
-        for (auto& landmark : landmarks) {
-          if (!cameras.count(rfcid)) {
-            landmark.second.obs.erase(rfcid);
-          }
-        }
-      }
       removed_fcid_buffer.clear();
+
       cameras = cameras_opt;
 
       if(use_imu){
@@ -1171,7 +1161,7 @@ bool next_step() {
         for(auto& cam : cameras){
           for(auto& cam_imu : recent_kf_cameras){
             if(cam.first == cam_imu.first){
-              std::cout << " update key_cam !" << std::endl;
+              //std::cout << " update key_cam !" << std::endl;
               cam_imu.second.T_w_c = cam.second.T_w_c;
             }
           }
@@ -1258,10 +1248,10 @@ void optimize() {
     num_obs += kv.second.obs.size();
   }
 
-  std::cerr << "Optimizing map with " << cameras.size() << " cameras, "
-            << landmarks.size() << " points " << num_obs << " observations, "
-            << frame_states_opt.size() << " imu state for optimization!"
-            << std::endl;
+  // std::cerr << "Optimizing map with " << cameras.size() << " cameras, " << "kf_frames size: " << kf_frames.size() << " , " 
+  //           << landmarks.size() << " points " << num_obs << " observations, "
+  //           << frame_states_opt.size() << " imu state for optimization!"
+  //           << std::endl;
 
   // Fix oldest two cameras to fix SE3 and scale gauge. Making the whole second
   // camera constant is a bit suboptimal, since we only need 1 DoF, but it's
@@ -1283,7 +1273,7 @@ void optimize() {
 
   if (use_imu) {
     get_frame_states_opt(frame_states, frame_states_opt);  //size (frame_states_opt) = size(keyframes cameras)
-    std::cout<< "get frame states optimization !"<<std::endl;
+    // std::cout<< "get frame states optimization !"<<std::endl;
   } else {
     // Do nothing here
   }
@@ -1294,11 +1284,12 @@ void optimize() {
 
   std::set<FrameCamId> fixed_cameras = {{fid, 0}, {fid, 1}};
   if(use_imu){  // optimize poses landmarks and intrisics
-      std::cout << "start imu projection BA..." << std::endl;
+      //std::cout << "start imu projection BA..." << std::endl;
       Imu_Proj_bundle_adjustment(feature_corners, ba_options, fixed_cameras, calib_cam_opt,
                                 cameras_opt, landmarks_opt, frame_states_opt, imu_measurements,
                                 timestamps);
-      std::cout << "imu projection BA end..." << std::endl;}  
+      // std::cout << "imu projection BA end..." << std::endl;
+      }  
   else{                  
       Proj_bundle_adjustment(feature_corners, ba_options, fixed_cameras, calib_cam_opt,
                           cameras_opt, landmarks_opt);}
@@ -1317,7 +1308,7 @@ void get_frame_states_opt(
   frame_states_opt.clear();
   for (const auto& kv : recent_kf_cameras) {
     PoseVelState<double> frame_state;
-      frame_state.T_w_i = kv.second.T_w_c; // here we load T_w_c, we will do next transformation for the cost function
+      frame_state.T_w_i = kv.second.T_w_c * calib_cam.T_i_c[0].inverse(); // here we load T_w_c, we will do next transformation for the cost function
       frame_state.vel_w_i = frame_states[timestamps[kv.first.frame_id]].vel_w_i;
       frame_state.t_ns = timestamps[kv.first.frame_id];
       frame_states_opt[timestamps[kv.first.frame_id]] = frame_state;  
@@ -1329,8 +1320,6 @@ void update_frame_states_from_opt(
     Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states_opt) {
   for (auto& it : frame_states_opt) {
     frame_states[it.first] = it.second;
-    frame_states[it.first].T_w_i =
-        frame_states[it.first].T_w_i * calib_cam.T_i_c[0].inverse();
   }
 }
 

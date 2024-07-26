@@ -339,10 +339,10 @@ struct BundleAdjustmentOptions {
   double huber_parameter = 1.0;
 
   /// maximum number of solver iterations
-  int max_num_iterations = 25;
+  int max_num_iterations = 30;
 
   /// imu optimization weight
-  double imu_optimization_weight = 0.4;
+  double imu_optimization_weight = 0.35;
 };
 
 // Run bundle adjustment to optimize cameras, points, and optionally intrinsics
@@ -427,7 +427,7 @@ void Imu_Proj_bundle_adjustment(
 //////////////////////////////////////////////////////////////
 
 //////////////////////////////////////////////////////////////
-  std::cout<< "Add cameras parameter block!!!"<<std::endl;
+  //std::cout<< "Add cameras parameter block!!!"<<std::endl;
   for (auto& cam : cameras) {
     problem.AddParameterBlock(cam.second.T_w_c.data(),
                               Sophus::SE3d::num_parameters,
@@ -438,7 +438,7 @@ void Imu_Proj_bundle_adjustment(
     }
   }
 
-  std::cout<< "Add states parameter block!!!"<<std::endl;
+  //std::cout<< "Add states parameter block!!!"<<std::endl;
   // add data imu (state of IMU) to ResidualsBlock
   for (auto& state : states) {
     problem.AddParameterBlock(state.second.T_w_i.data(),
@@ -447,7 +447,7 @@ void Imu_Proj_bundle_adjustment(
   }
 
 //////////////////////////////////////////////////////////////
-std::cout<< "Add camera and states residuals block !"<<std::endl;
+//std::cout<< "Add camera and states residuals block !"<<std::endl;
 //////////////////////////////////////////////////////////////
   
   for (auto& [track_id, landmark] : landmarks) {
@@ -476,7 +476,7 @@ std::cout<< "Add camera and states residuals block !"<<std::endl;
   }
 
 //////////////////////////////////////////////////////////////
- std::cout<< "KF cameras BA with IMU Measurement !"<<std::endl;
+ //std::cout<< "KF cameras BA with IMU Measurement !"<<std::endl;
 //////////////////////////////////////////////////////////////
 
   for(auto& state: states){
@@ -485,7 +485,7 @@ std::cout<< "Add camera and states residuals block !"<<std::endl;
         int Fid = std::distance(timestamps.begin(), it);
  
         FrameCamId camlid(Fid, 0);
-        std::cout << "Found corresponding FramdcamID: "<< camlid << std::endl;
+        //std::cout << "Found corresponding FramdcamID: "<< camlid << std::endl;
 
         if(cameras.count(camlid)){
           BundleAdjustmentImuCamstateCostFunctor* cam_imu_cost =
@@ -515,7 +515,7 @@ std::cout<< "Add camera and states residuals block !"<<std::endl;
   
 
 //////////////////////////////////////////////////////////////
-  std::cout<< "imu BA ing!"<<std::endl;
+  //std::cout<< "imu BA ing!"<<std::endl;
 //////////////////////////////////////////////////////////////
   // Add the parameter block first
   if (states.size() >= 3) {
@@ -532,8 +532,8 @@ std::cout<< "Add camera and states residuals block !"<<std::endl;
       visnav::PoseVelState<double>& state0 = states[iter->first];
       double diff_t = st1 - st0;
       //std::cout<< "time difference : " << diff_t << std::endl;
-      if(diff_t > 2.5){
-        std::cout<< "The interval of consecutive keyframes is unexpected !!! Optimization skipping ! "<< std::endl;
+      if(diff_t > 3){
+        //std::cout<< "The interval of consecutive keyframes is unexpected !!! Optimization skipping ! "<< std::endl;
         continue;
       }
 

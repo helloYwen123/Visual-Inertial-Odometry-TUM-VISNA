@@ -117,24 +117,23 @@ struct BundleAdjustmentReprojectionCostFunctor {
   std::string cam_model;
 };
 
-
 ///////////////////////////////////////////////
 struct BundleAdjustmentImuCamstateCostFunctor {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   BundleAdjustmentImuCamstateCostFunctor(const PoseVelState<double>& imu_state,
                                         const Sophus::SE3d T_i_c)
-      : imu_state_(imu_state), T_c_i(T_i_c.inverse()) {}
+      : imu_state_(imu_state), T_i_c(T_i_c) {}
 
   PoseVelState<double> imu_state_;
-  Sophus::SE3d T_c_i;
+  Sophus::SE3d T_i_c;
 
   template <class T>
   bool operator()(T const* const sT_w_c, T* sResiduals) const {
     Eigen::Map<Sophus::SE3<T> const> const sCam_T_w_c(sT_w_c);
     Eigen::Map<Eigen::Matrix<T, Sophus::SE3d::DoF, 1>> residuals(sResiduals);
 
-    residuals.template segment<3>(0) = (sCam_T_w_c).translation() - ((imu_state_.T_w_i).translation());
-    residuals.template segment<3>(3) = ((sCam_T_w_c).so3() * (imu_state_.T_w_i ).so3().inverse()).log();
+    residuals.template segment<3>(0) = (sCam_T_w_c).translation() - ((imu_state_.T_w_i * T_i_c).translation());
+    residuals.template segment<3>(3) = ((sCam_T_w_c).so3() * (imu_state_.T_w_i * T_i_c).so3().inverse()).log();
     //std::cout << residuals << std::endl;
     return true;
   }
