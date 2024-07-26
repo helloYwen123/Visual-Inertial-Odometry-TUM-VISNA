@@ -342,7 +342,7 @@ struct BundleAdjustmentOptions {
   int max_num_iterations = 22;
 
   /// imu optimization weight
-  double imu_optimization_weight = 0.25;
+  double imu_optimization_weight = 0.35;
 };
 
 // Run bundle adjustment to optimize cameras, points, and optionally intrinsics
@@ -533,7 +533,7 @@ void Imu_Proj_bundle_adjustment(
       visnav::PoseVelState<double>& state0 = states[iter->first];
       double diff_t = st1 - st0;
       //std::cout<< "time difference : " << diff_t << std::endl;
-      if(diff_t > 2.5){
+      if(diff_t > 2.8 || diff_t < 1e-4){
         //std::cout<< "The interval of consecutive keyframes is unexpected !!! Optimization skipping ! "<< std::endl;
         continue;
       }

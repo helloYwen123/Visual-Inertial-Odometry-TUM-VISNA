@@ -127,8 +127,8 @@ std::set<FrameId> kf_frames;
 
 std::shared_ptr<std::thread> opt_thread;
 
-///the num that is allowed to exist in the map (default size: 10)
-size_t num_latest_frames = 10; 
+///the num that is allowed to exist in the map (default size: 11)
+size_t num_latest_frames = 11; 
 std::vector<FrameCamId> removed_fcid_buffer;
 
 /// intrinsic calibration
@@ -965,7 +965,7 @@ bool next_step() {
 
             imu_measurements[curr_timestamp] = *imu_measurement;
             frame_states[curr_timestamp] = curr_state;
-            std::cout << "KeyFrame imu states size: " << frame_states.size() <<std::endl; 
+            //std::cout << "KeyFrame imu states size: " << frame_states.size() <<std::endl; 
             last_state_t_ns = curr_timestamp;  
           }
           initialized = true;
@@ -996,7 +996,7 @@ bool next_step() {
           imu_measurement->predictState(last_state, constants::g, curr_state);
           imu_measurements[curr_timestamp] = *imu_measurement;
           frame_states[curr_timestamp] = curr_state;
-          std::cout << "KeyFrame imu states size: " << frame_states.size() <<std::endl; 
+          //std::cout << "KeyFrame imu states size: " << frame_states.size() <<std::endl; 
           last_state_t_ns = curr_timestamp;
       }
     }
