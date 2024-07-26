@@ -96,6 +96,14 @@ bool next_step();
 void optimize();
 void compute_projections();
 void saveTrajectoryButton();
+double alignSVD(
+    const std::vector<int64_t>& filter_t_ns,
+    const std::vector<Eigen::Vector3d,
+                      Eigen::aligned_allocator<Eigen::Vector3d>>& filter_t_w_i,
+    const std::vector<int64_t>& gt_t_ns,
+    std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>&
+        gt_t_w_i);
+double align_svd();
 ///////////////////////////////////////////////////////////////////////////////
 /// Constants
 ///////////////////////////////////////////////////////////////////////////////
@@ -285,6 +293,7 @@ using Button = pangolin::Var<std::function<void(void)>>;
 
 Button next_step_btn("ui.next_step", &next_step);
 Button save_traj_btn("ui.save_traj", &saveTrajectoryButton);
+Button SVD_btn("ui.svd", &align_svd);
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -444,6 +453,7 @@ int main(int argc, char** argv) {
     }
   }
   saveTrajectoryButton();
+  align_svd();
   return 0;
 }
 
@@ -1332,6 +1342,121 @@ void update_frame_states_from_opt(
     frame_states[it.first].T_w_i =
         frame_states[it.first].T_w_i * calib_cam.T_i_c[0].inverse();
   }
+}
+double alignSVD(
+    const std::vector<int64_t>& filter_t_ns,
+    const std::vector<Eigen::Vector3d,
+                      Eigen::aligned_allocator<Eigen::Vector3d>>& filter_t_w_i,
+    const std::vector<int64_t>& gt_t_ns,
+    std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>&
+        gt_t_w_i) {
+  std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>
+      est_associations;
+  std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>
+      gt_associations;
+  for (auto& fid : kf_frames) {
+    FrameCamId temp_fcid(fid, 0);
+    vio_points.push_back(
+        (cameras.at(temp_fcid).T_w_c * calib_cam.T_i_c[0].inverse())
+            .translation());
+  }
+
+  for (size_t i = 0; i < filter_t_w_i.size(); i++) {
+    int64_t t_ns = filter_t_ns[i];
+
+    size_t j;
+    for (j = 0; j < gt_t_ns.size(); j++) {
+      if (gt_t_ns.at(j) > t_ns) break;
+    }
+    j--;
+
+    if (j >= gt_t_ns.size() - 1) {
+      continue;
+    }
+
+    double dt_ns = t_ns - gt_t_ns.at(j);
+    double int_t_ns = gt_t_ns.at(j + 1) - gt_t_ns.at(j);
+
+    BASALT_ASSERT_STREAM(dt_ns >= 0, "dt_ns " << dt_ns);
+    BASALT_ASSERT_STREAM(int_t_ns > 0, "int_t_ns " << int_t_ns);
+
+    if (int_t_ns > 1.1e8) continue;
+
+    double ratio = dt_ns / int_t_ns;
+
+    BASALT_ASSERT(ratio >= 0);
+    BASALT_ASSERT(ratio < 1);
+
+    Eigen::Vector3d gt = (1 - ratio) * gt_t_w_i[j] + ratio * gt_t_w_i[j + 1];
+
+    gt_associations.emplace_back(gt);
+    est_associations.emplace_back(filter_t_w_i[i]);
+  }
+
+  int num_kfs = est_associations.size();
+
+  Eigen::Matrix<double, 3, Eigen::Dynamic> gt, est;
+  gt.setZero(3, num_kfs);
+  est.setZero(3, num_kfs);
+
+  for (size_t i = 0; i < est_associations.size(); i++) {
+    gt.col(i) = gt_associations[i];
+    est.col(i) = est_associations[i];
+  }
+
+  Eigen::Vector3d mean_gt = gt.rowwise().mean();
+  Eigen::Vector3d mean_est = est.rowwise().mean();
+
+  gt.colwise() -= mean_gt;
+  est.colwise() -= mean_est;
+
+  Eigen::Matrix3d cov = gt * est.transpose();
+
+  Eigen::JacobiSVD<Eigen::Matrix3d> svd(
+      cov, Eigen::ComputeFullU | Eigen::ComputeFullV);
+
+  Eigen::Matrix3d S;
+  S.setIdentity();
+
+  if (svd.matrixU().determinant() * svd.matrixV().determinant() < 0)
+    S(2, 2) = -1;
+
+  Eigen::Matrix3d rot_gt_est = svd.matrixU() * S * svd.matrixV().transpose();
+  Eigen::Vector3d trans = mean_gt - rot_gt_est * mean_est;
+
+  Sophus::SE3d T_gt_est(rot_gt_est, trans);
+  Sophus::SE3d T_est_gt = T_gt_est.inverse();
+
+  for (size_t i = 0; i < gt_t_w_i.size(); i++) {
+    gt_t_w_i[i] = T_est_gt * gt_t_w_i[i];
+  }
+
+  double error = 0;
+  for (size_t i = 0; i < est_associations.size(); i++) {
+    est_associations[i] = T_gt_est * est_associations[i];
+    Eigen::Vector3d res = est_associations[i] - gt_associations[i];
+
+    error += res.transpose() * res;
+  }
+
+  error /= est_associations.size();
+  error = std::sqrt(error);
+
+  // std::cout << "T_align\n" << T_gt_est.matrix() << std::endl;
+  // std::cout << "error " << error << std::endl;
+  // std::cout << "number of associations " << num_kfs << std::endl;
+  return error;
+}
+
+double align_svd() {
+  for (auto& fid : kf_frames) {
+    FrameCamId temp_fcid(fid, 0);
+    vio_points.push_back(
+        (cameras.at(temp_fcid).T_w_c * calib_cam.T_i_c[0].inverse())
+            .translation());
+  }
+  double error = alignSVD(vio_t_ns, vio_points, gt_t_ns, gt_points);
+  return error;
 }
 
 void saveTrajectoryButton() {
