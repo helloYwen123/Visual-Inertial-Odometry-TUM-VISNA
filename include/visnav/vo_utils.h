@@ -266,81 +266,65 @@ void add_new_landmarks(const FrameCamId fcidl, const FrameCamId fcidr,
   const Eigen::Vector3d t_0_1 = T_0_1.translation();
   const Eigen::Matrix3d R_0_1 = T_0_1.rotationMatrix();
 
-// TODO SHEET 5: Add new landmarks and observations. Here md_stereo contains
-// stereo matches for the current frame and md contains feature to landmark
-// matches for the left camera (camera 0). For all inlier feature to landmark
-// matches add the observations to the existing landmarks. If the left camera's
-// feature appears also in md_stereo.inliers, then add both observations. For
-// all inlier stereo observations that were not added to the existing landmarks,
-// triangulate and add new landmarks. Here next_landmark_id is a running index
-// of the landmarks, so after adding a new landmark you should always increase
-// next_landmark_id by 1.
-  // UNUSED(fcidl);
-  // UNUSED(fcidr);
-  // UNUSED(kdl);
-  // UNUSED(kdr);
-  // UNUSED(calib_cam);
-  // UNUSED(md_stereo);
-  // UNUSED(md);
-  // UNUSED(landmarks);
-  // UNUSED(next_landmark_id);
-  // UNUSED(t_0_1);
-  // UNUSED(R_0_1);
-  std::unordered_set<FeatureId> used_left_ids;
-  std::cout << "Updating existing landmarks with new observations..." << std::endl;
-  // Update existing landmarks with new observations
-  for (const auto& match : md.inliers) {
-    const FeatureId& feature_id = match.first;
-    const TrackId& track_id = match.second;
+  // TODO SHEET 5: Add new landmarks and observations. Here md_stereo contains
+  // stereo matches for the current frame and md contains feature to landmark
+  // matches for the left camera (camera 0). For all inlier feature to landmark
+  // matches add the observations to the existing landmarks. If the left
+  // camera's feature appears also in md_stereo.inliers, then add both
+  // observations. For all inlier stereo observations that were not added to the
+  // existing landmarks, triangulate and add new landmarks. Here
+  // next_landmark_id is a running index of the landmarks, so after adding a new
+  // landmark you should always increase next_landmark_id by 1.
+  for (auto& kv : md.inliers) {  // In this frame
+    const FeatureId& f_id = kv.first;
+    const TrackId& t_id = kv.second;
+    if (landmarks.count(t_id) > 0)  // landmark exists
+    {
+      landmarks.at(t_id).obs.emplace(std::make_pair(fcidl, f_id));
 
-
-    // Add observation from left camera
-    landmarks[track_id].obs[fcidl] = feature_id;
-    used_left_ids.insert(feature_id);
-
-    // If the feature appears also in md_stereo.inliers, add observation from right camera
-    for (const auto& stereo_match : md_stereo.inliers) {
-      if (stereo_match.first == feature_id) {
-        landmarks[track_id].obs[fcidr] = stereo_match.second;
-        used_left_ids.insert(stereo_match.first);
+      // Check if feature id also exist in stereo pair
+      for (auto& inlier_pair : md_stereo.inliers) {
+        if (inlier_pair.first == f_id) {
+          landmarks.at(t_id).obs.emplace(
+              std::make_pair(fcidr, inlier_pair.second));
+          break;
+        }
       }
+    } else {
     }
   }
-
-  // Process inlier stereo matches that were not used in the previous stage
-  std::cout << "Processing inlier stereo matches that were not used in the previous stage..." << std::endl;
-  for (const auto& stereo_match : md_stereo.inliers) {
-    const FeatureId& left_id = stereo_match.first;
-    const FeatureId& right_id = stereo_match.second;
-
-    // Check if this stereo match has already been used
-    if (used_left_ids.count(left_id) == 0) {
-      Eigen::Vector2d p0 = kdl.corners[left_id];
-      Eigen::Vector2d p1 = kdr.corners[right_id];
-
-      // Prepare bearing vectors for triangulation
-      opengv::bearingVectors_t bearingVectors0; //3d points in space
+  for (auto& kv : md_stereo.inliers) {
+    const FeatureId& f_idl = kv.first;
+    const FeatureId& f_idr = kv.second;
+    int counter = 0;
+    for (auto& fid_tid : md.inliers) {
+      const FeatureId& fid = fid_tid.first;
+      if (fid == f_idl) {
+        // Already exist
+        counter++;
+        break;
+      } else {
+      }
+    }
+    if (counter == 0) {
+      // DO TRIANGULATION
       opengv::bearingVectors_t bearingVectors1;
-      bearingVectors0.push_back(calib_cam.intrinsics[0]->unproject(p0));
-      bearingVectors1.push_back(calib_cam.intrinsics[1]->unproject(p1));
+      opengv::bearingVectors_t bearingVectors2;
 
-      opengv::relative_pose::CentralRelativeAdapter adapter(bearingVectors0, bearingVectors1, t_0_1, R_0_1);
+      bearingVectors1.push_back(
+          calib_cam.intrinsics[fcidl.cam_id]->unproject(kdl.corners.at(f_idl)));
+      bearingVectors2.push_back(
+          calib_cam.intrinsics[fcidr.cam_id]->unproject(kdr.corners.at(f_idr)));
 
-      // Perform triangulation
-      Eigen::Vector3d triangulated_point = opengv::triangulation::triangulate(adapter, 0);
-      Eigen::Vector3d world_point = md.T_w_c * triangulated_point;
-      // Debug output
-      // std::cout << "Triangulated point for left_id " << left_id << " and right_id " << right_id
-      //           << ": [" << world_point.x() << ", " << world_point.y() << ", " << world_point.z() << "]" << std::endl;
-      
-      // Only add landmarks that are in front of the camera
-        Landmark new_landmark;
-        new_landmark.p = world_point;
-        new_landmark.obs[fcidl] = left_id;
-        new_landmark.obs[fcidr] = right_id;
-        landmarks[next_landmark_id] = new_landmark;
-        next_landmark_id++;
-      
+      opengv::relative_pose::CentralRelativeAdapter adapter(
+          bearingVectors1, bearingVectors2, t_0_1, R_0_1);
+      opengv::point_t point =
+          md.T_w_c * opengv::triangulation::triangulate(adapter, 0);
+      Landmark l;
+      l.p = point;
+      l.obs.emplace(std::make_pair(fcidl, f_idl));
+      l.obs.emplace(std::make_pair(fcidr, f_idr));
+      landmarks.emplace(std::make_pair(next_landmark_id++, l));
     }
   }
 }
@@ -368,7 +352,7 @@ bool remove_old_keyframes(const FrameCamId fcidl, const int max_num_kfs,
   while (static_cast<int>(kf_frames.size()) > max_num_kfs) {
     // find and remove the oldest keyframe
 
-    std::cout<<"remove a camera from Cameras!"<<std::endl;
+    //std::cout<<"remove a camera from Cameras!"<<std::endl;
     removed = true;
     FrameId oldest_frame_id = *kf_frames.begin();
     removed_fid = oldest_frame_id;
@@ -401,7 +385,7 @@ bool remove_old_keyframes(const FrameCamId fcidl, const int max_num_kfs,
     }
   }
 
-  if (removed){std::cout << "KF num is larger than threshold! "<< " remove KF id : "<< removed_fid << std::endl;}
+  //if (removed){std::cout << "KF num is larger than threshold! "<< " remove KF id : "<< removed_fid << std::endl;}
 
   return removed;
 }

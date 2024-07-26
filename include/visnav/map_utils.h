@@ -339,10 +339,10 @@ struct BundleAdjustmentOptions {
   double huber_parameter = 1.0;
 
   /// maximum number of solver iterations
-  int max_num_iterations = 30;
+  int max_num_iterations = 22;
 
   /// imu optimization weight
-  double imu_optimization_weight = 0.35;
+  double imu_optimization_weight = 0.4;
 };
 
 // Run bundle adjustment to optimize cameras, points, and optionally intrinsics
@@ -392,7 +392,6 @@ for (auto& [track_id, landmark] : landmarks) {
       
 
 }
-
 }
   // Solve
   ceres::Solver::Options ceres_options;
@@ -490,22 +489,18 @@ void Imu_Proj_bundle_adjustment(
         if(cameras.count(camlid)){
           BundleAdjustmentImuCamstateCostFunctor* cam_imu_cost =
               new BundleAdjustmentImuCamstateCostFunctor(
-                  state.second, calib_cam.T_i_c[0]);
+                   calib_cam.T_i_c[0]);
   
           ceres::CostFunction* cost_function = new ceres::AutoDiffCostFunction<
               BundleAdjustmentImuCamstateCostFunctor, Sophus::SE3d::DoF,
+              Sophus::SE3d::num_parameters,
               Sophus::SE3d::num_parameters
               >(cam_imu_cost);
             
-          ceres::LossFunction* loss_function = nullptr;
-
-          if (options.use_huber) {
-            loss_function = new ceres::HuberLoss(options.huber_parameter);
-          }
           problem.AddResidualBlock(
               cost_function,
-              new ceres::ScaledLoss(loss_function, options.imu_optimization_weight, ceres::TAKE_OWNERSHIP), // introduce weight for effect of IMU BA
-              cameras[camlid].T_w_c.data()
+              options.use_huber ? new ceres::HuberLoss(options.huber_parameter) : nullptr,
+              cameras[camlid].T_w_c.data(), state.second.T_w_i.data()
           );
         }
     } else {
@@ -532,7 +527,7 @@ void Imu_Proj_bundle_adjustment(
       visnav::PoseVelState<double>& state0 = states[iter->first];
       double diff_t = st1 - st0;
       //std::cout<< "time difference : " << diff_t << std::endl;
-      if(diff_t > 3){
+      if(diff_t > 2.75){
         //std::cout<< "The interval of consecutive keyframes is unexpected !!! Optimization skipping ! "<< std::endl;
         continue;
       }
@@ -547,9 +542,16 @@ void Imu_Proj_bundle_adjustment(
           3,                             // state0.vel_w_i
           3                              // state1.vel_w_i                            
           >(imu_c);
+
+      ceres::LossFunction* loss_function = nullptr;
+
+      if (options.use_huber) {
+        loss_function = new ceres::HuberLoss(options.huber_parameter);
+
+      }
       problem.AddResidualBlock(
           imu_cost_function, 
-          options.use_huber ? new ceres::HuberLoss(options.huber_parameter) : nullptr,
+          new ceres::ScaledLoss(loss_function, options.imu_optimization_weight, ceres::TAKE_OWNERSHIP), // introduce weight for effect of IMU BA
           state0.T_w_i.data(), state1.T_w_i.data(), state0.vel_w_i.data(),
           state1.vel_w_i.data());
       
