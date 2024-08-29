@@ -339,7 +339,7 @@ struct BundleAdjustmentOptions {
   double huber_parameter = 1.0;
 
   /// maximum number of solver iterations
-  int max_num_iterations = 22;
+  int max_num_iterations = 30;
 
   /// imu optimization weight
   double imu_optimization_weight = 0.35;
@@ -533,7 +533,7 @@ void Imu_Proj_bundle_adjustment(
       visnav::PoseVelState<double>& state0 = states[iter->first];
       double diff_t = st1 - st0;
       //std::cout<< "time difference : " << diff_t << std::endl;
-      if(diff_t > 2.8 || diff_t < 1e-4){
+      if(diff_t > 2.5){
         //std::cout<< "The interval of consecutive keyframes is unexpected !!! Optimization skipping ! "<< std::endl;
         continue;
       }
@@ -553,14 +553,13 @@ void Imu_Proj_bundle_adjustment(
 
       if (options.use_huber) {
         loss_function = new ceres::HuberLoss(options.huber_parameter);
-
       }
+
       problem.AddResidualBlock(
           imu_cost_function, 
           new ceres::ScaledLoss(loss_function, options.imu_optimization_weight, ceres::TAKE_OWNERSHIP), // introduce weight for effect of IMU BA
           state0.T_w_i.data(), state1.T_w_i.data(), state0.vel_w_i.data(),
           state1.vel_w_i.data());
-      
       iter_counter++;
 
     }

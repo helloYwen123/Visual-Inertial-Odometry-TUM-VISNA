@@ -1152,7 +1152,6 @@ bool next_step() {
 
     current_pose = md.T_w_c;
 
-
     if (int(md.inliers.size()) < new_kf_min_inliers && !opt_running &&
         !opt_finished) {
       take_keyframe = true;
