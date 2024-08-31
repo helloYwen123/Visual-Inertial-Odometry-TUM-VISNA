@@ -1,0 +1,80 @@
+\usepackage{booktabs}
+\usepackage{amsmath,amsfonts}
+
+\usepackage{url}
+\usepackage{textcomp}
+\usepackage{hyperref}
+\usepackage{bm}
+\usepackage{graphicx}
+\usepackage{enumitem}
+
+\usepackage{listings}% http://ctan.org/pkg/listings
+\lstset{
+  basicstyle=\ttfamily\small,
+  showtabs=true,
+  tabsize=2,
+  breaklines=true,
+  aboveskip=0.5em,
+  belowskip=0em,
+  tab=\smash{\rule[-.2\baselineskip]{.4pt}{\baselineskip}\kern.5em}}
+
+\usepackage[style=numeric,backend=bibtex]{biblatex} %backend tells biblatex what you will be using to process the bibliography file
+\bibliography{ref}
+
+\DeclareMathOperator{\atan2}{atan2}
+
+%\def\nl{\hfill\break\null}
+\oddsidemargin=0.3cm
+\topmargin=-1cm
+\textwidth=15cm
+\textheight=23cm
+\parindent=0cm
+\parskip=1mm
+
+\def\author#1{\def\@author{#1}}
+\def\title#1{\def\@title{#1}}
+\def\location#1{\def\@location{#1}}
+\def\blurb#1{\def\@blurb{#1}}
+
+\author{Name}
+\title{Title}
+\location{Location}
+\blurb{Blub}
+
+\newenvironment{enumialpha}{\begin{enumerate}
+  \def\theenumi{\alph{enumi}}
+  \def\labelenumi{(\theenumi)}}{\end{enumerate}}
+
+
+\renewcommand\maketitle{
+\begin{tabular*}{15cm}{l@{\extracolsep{\fill}}r}
+  Vision-Based Navigation & Computer Vision Group\\
+  S. Solonets, D. Sinitsyn, D. Cremers & Department of Informatics\\
+  Summer Semester 2024 & Technical University of Munich\\
+  \\
+\end{tabular*}
+
+\begin{center}
+{\bf \Large \@title}
+
+{\large \@location}
+
+\@date\\
+\end{center}
+}
+
+\bigskip
+
+
+\newcommand{\generalNotice}{
+  The exercises should be done by yourself.
+  We use Ubuntu (20.04, 22.04). It should work on other Linux distributions, as well as on macOS, but we do not guarantee full support, some more manual tweaking might be required.
+%  It is already installed on the lab computers.
+%  If you want to use your own laptop, you will need to install Ubuntu yourself.
+}
+
+\newcommand{\submissionInstructions}{
+  A complete submission consists both of a PDF file with the solutions/answers to the questions on the exercise sheet and a merge request against the \texttt{master} branch with the source code that you used to solve the given problems.
+  Please note your name in the PDF file and submit it as part of the merge request by placing it in the \texttt{submission} folder.
+}
+

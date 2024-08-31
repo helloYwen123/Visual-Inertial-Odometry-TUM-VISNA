@@ -1,0 +1,29 @@
+cmake-build*
+.idea
+CMakeLists.txt.user
+build
+thirdparty/build-*
+data/V1_01_easy/
+data/MH_01_easy/
+data/MH_02_easy/
+data/*
+
+*.cereal
+.DS_Store
+*~
+*.json
+opt_calib.json
+__pycache__
+
+#building and compiling
+.vscode/
+CMakeLists_mine.txt
+# unignored files
+!/test/ex2_test_data/
+!/test/ex2_test_data/*
+!/test/ex3_test_data/
+!/test/ex3_test_data/*
+!/test/ex4_test_data/
+!/test/ex4_test_data/*
+!/test/ex5_test_data/
+!/test/ex5_test_data/*

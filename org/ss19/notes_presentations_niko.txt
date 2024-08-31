@@ -1,0 +1,134 @@
+2:00 - 2:15   Raza Yunus, Nikola Dinev: Photometric Bundle Adjustment
+
+Start: 2:01
+Timing: +
+Questions: +
+Content: +
+balance of detail / overview: +
+Clarity slides: +
+Clarity presentation: +
+Comments: 
+- Additional landmarks didn't improve too much? --> not too many added
+
+
+
+2:15 - 2:30   Tim Sticker: Advanced Matching and Keypoint Evaluation
+
+Start: 2:15
+Timing: bit long, but lots of interesting results
+Questions: +
+Content: +
+Clarity slides: +
+Clarity presentation: +
+Balance of detail / overview: +
+Comments:
+- 
+
+
+2:30 - 2:45   Meng Liu, Kai Wu: Dense 3D reconstruction for SFM
+
+Start: 2:33
+Timing: +
+Questions: +
+Content: + 
+Clarity slides: + 
+Clarity presentation: +
+Balance of detail / overview: +-
+Comments:
+- technical issues with PSM net --> old library requirements
+- some PSM net results via author
+- engineering effort with multiple-libraries / ROS
+- life demo
+- comparison opencv / image_undistort
+- backup slides for reconstruction
+- --> issues during project with reference frames...
+
+
+
+
+2:45 - 3:00   Boqian Yu: Direct Visual Odometry for RGB-D Images
+
+Start: 2:48
+Timing: +
+Questions: +/-
+Content: +/-
+Clarity slides: +/-
+Clarity presentation: +/-
+Balance of detail / overview: too much on MAP derivation?
+Comments:
+ - motivation in presentation sometimes missing (why image pyramid?)
+ - interpretation of results "this looks terrible"
+ - no keyframes, no motion prior in results. looks ok.
+
+
+
+3:00 - 3:15   Sergei Solonets, Viktor Drobnyi: Photometric Bundle Adjustment
+
+Start: 3:03
+Timing: +
+Questions: +
+Content: +
+Clarity slides: +/-
+Clarity presentation: +/-, little bit confused
+Balance of detail / overview:
+Comments:
+- mentioned: justification for 8 pixel pattern
+- some details not explained too well for unfamiliar audience 
+  (epipolar line search, "inverse depth is better numerically)
+- iterate optimization and outlier removal
+- Canny edge brought improvement over just adding some new points with high gradients
+
+
+
+3:15 - 3:30   Andong Tan, Chenguang Huang: Indirect Visual Odometry with Optical Flow
+
+Start: 3:16
+Timing: +
+Questions: +
+Content: +
+Clarity slides: + (intro+pipeline / details / 
+Clarity presentation: +/-
+Balance of detail / overview:
+Comments:
+ - some parameter studies (grid shape, keyframing, keypoint detection): +
+ - some parameter studies could be a bit better organzied
+
+
+
+3:30 - 3:45   Simon Boche, Simon Klenk: Indirect Visual Odometry with Optical Flow
+
+Start: 3:35
+Timing: 
+Questions:
+Content:
+Clarity slides:
+Clarity presentation:
+Balance of detail / overview:
+Comments:
+- average track length mentioned 50pts
+- nice analysis and visualization of optical flow tracks
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

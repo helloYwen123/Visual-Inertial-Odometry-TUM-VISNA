@@ -8,17 +8,3 @@ This repo for project is built upon part of the code in practical course "Vision
 Pei-Ran Huang
 
 Wenjie Xie
-
-
-The command to run the file:
-
-cd build
-
-cmake ..
-
-make
-
-./build/odometry --dataset-path data/(datafolder)/mav0/ --cam-calib euroc_ds_calib.json --imu true
-
-
-Thanks for your tutoring in this semester !
