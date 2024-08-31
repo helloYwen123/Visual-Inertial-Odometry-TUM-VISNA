@@ -8,12 +8,3 @@ This repo for project is built upon part of the code in practical course "Vision
 Pei-Ran Huang
 
 Wenjie Xie
-
-
-
-```
-
-
-
-
-
