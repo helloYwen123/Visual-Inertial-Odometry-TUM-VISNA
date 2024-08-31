@@ -1,20 +1,42 @@
-## Vision-based Navigation
+# Visual-Inertial Tracking using Preintegrated Factors
 
-This code is a part of the practical course "Vision-based Navigation" (IN2106) taught at the Technical University of Munich.
+This repo for project is built upon part of the code in practical course "Vision-based Navigation" (IN2106 24SS) taught at the Technical University of Munich(TUM). 
 
-It was originally developed for the winter term 2018. The latest iteration is winter term 2021/2022.
-
-The authors are Vladyslav Usenko, Nikolaus Demmel, David Schubert and Zhakshylyk Nurlanov.
-
-### License
-
-The code for this practical course is provided under a BSD 3-clause license. See the LICENSE file for details.
-
-Parts of the code (`include/tracks.h`, `include/union_find.h`) are adapted from OpenMVG and distributed under an MPL 2.0 licence.
-
-Parts of the code (`include/local_parameterization_se3.hpp`, `src/test_ceres_se3.cpp`) are adapted from Sophus and distributed under an MIT license.
-
-Note also the different licenses of thirdparty submodules.
+**Team Member**:
 
 
-You can find [setup instructions here.](wiki/Setup.md)
+Pei-Ran Huang
+
+Wenjie Xie
+
+
+For specifics, please review the project [report]().
+## Setup
+```
+git clone --recursive https://gitlab.lrz.de/24ss_visnav_vio/visual_inertial_slam.git
+```
+Run the sh file to install all- Prerequisites packages
+
+```
+cd ${yourworkspacename}
+./install_dependencies.sh
+./build_submodules.sh
+```
+After running the command, then need to build code
+```
+mkdir build && cd build
+cmake ..
+make
+```
+## Running 
+
+Please adjust the variable names for the dataset and the status of IMU utilization as required.
+```
+cd ${yourworkspacename}
+.build/odometry --dataset-path /data/euro_data/${nameofdataset} --cam-calib euroc_ds_calib_visnav_type.json --use-imu ${bool}
+```
+
+
+
+
+
