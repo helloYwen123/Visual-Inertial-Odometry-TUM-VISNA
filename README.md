@@ -33,7 +33,7 @@ make
 Please adjust the variable names for the dataset and the status of IMU utilization as required.
 ```
 cd ${yourworkspacename}
-.build/odometry --dataset-path /data/euro_data/${nameofdataset} --cam-calib euroc_ds_calib_visnav_type.json --use-imu ${bool}
+./build/odometry --dataset-path /data/euro_data/${nameofdataset} --cam-calib euroc_ds_calib_visnav_type.json --use-imu ${bool}
 ```
 
 
