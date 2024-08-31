@@ -52,6 +52,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <visnav/tracks.h>
 
+#include <visnav/preintegration_imu/imu_types.h>
+#include <visnav/preintegration_imu/preintegration.h>
+#include <visnav/preintegration_imu/calib_bias.hpp>
+#include <visnav/preintegration_imu/utils/assert.h>
+#include <visnav/preintegration_imu/utils/eigen_utils.hpp>
+
 namespace visnav {
 
 // save map with all features and matches
@@ -339,10 +345,10 @@ struct BundleAdjustmentOptions {
   double huber_parameter = 1.0;
 
   /// maximum number of solver iterations
-  int max_num_iterations = 30;
+  int max_num_iterations = 22;
 
   /// imu optimization weight
-  double imu_optimization_weight = 0.35;
+  double imu_optimization_weight = 0.4;
 };
 
 // Run bundle adjustment to optimize cameras, points, and optionally intrinsics
@@ -426,7 +432,7 @@ void Imu_Proj_bundle_adjustment(
 //////////////////////////////////////////////////////////////
 
 //////////////////////////////////////////////////////////////
-  //std::cout<< "Add cameras parameter block!!!"<<std::endl;
+  // std::cout<< "weight : " << options.imu_optimization_weight << std::endl;
   for (auto& cam : cameras) {
     problem.AddParameterBlock(cam.second.T_w_c.data(),
                               Sophus::SE3d::num_parameters,
@@ -533,10 +539,10 @@ void Imu_Proj_bundle_adjustment(
       visnav::PoseVelState<double>& state0 = states[iter->first];
       double diff_t = st1 - st0;
       //std::cout<< "time difference : " << diff_t << std::endl;
-      if(diff_t > 2.5){
-        //std::cout<< "The interval of consecutive keyframes is unexpected !!! Optimization skipping ! "<< std::endl;
-        continue;
-      }
+      // if(diff_t > 2.8 || diff_t < 1e-4){
+      //   //std::cout<< "The interval of consecutive keyframes is unexpected !!! Optimization skipping ! "<< std::endl;
+      //   continue;
+      // }
 
       BundleAdjustmentImuCostFunctor* imu_c = new BundleAdjustmentImuCostFunctor(
           imu_meas.getDeltaState(), visnav::constants::g, state0.t_ns, state1.t_ns,
@@ -553,13 +559,14 @@ void Imu_Proj_bundle_adjustment(
 
       if (options.use_huber) {
         loss_function = new ceres::HuberLoss(options.huber_parameter);
-      }
 
+      }
       problem.AddResidualBlock(
           imu_cost_function, 
           new ceres::ScaledLoss(loss_function, options.imu_optimization_weight, ceres::TAKE_OWNERSHIP), // introduce weight for effect of IMU BA
           state0.T_w_i.data(), state1.T_w_i.data(), state0.vel_w_i.data(),
           state1.vel_w_i.data());
+      
       iter_counter++;
 
     }
@@ -575,7 +582,6 @@ void Imu_Proj_bundle_adjustment(
   } else {
     // Do nothing
   }
-
 
   // Solve
   ceres::Solver::Options ceres_options;
@@ -594,5 +600,38 @@ void Imu_Proj_bundle_adjustment(
       break;
   }
 }
+
+void take_framestates(
+    const Calibration& calib_cam,
+    Cameras& cameras,
+    std::vector<Timestamp>& timestamps,
+    PoseVelState<double>& frame_state,
+    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states,
+    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states_opt) {
+  frame_states_opt.clear();
+  for (const auto& kv : cameras) {
+
+      frame_state.T_w_i = kv.second.T_w_c * calib_cam.T_i_c[0].inverse(); // here we load T_w_c, we will do next transformation for the cost function
+      frame_state.vel_w_i = frame_states[timestamps[kv.first.frame_id]].vel_w_i;
+      frame_state.t_ns = timestamps[kv.first.frame_id];
+      frame_states_opt[timestamps[kv.first.frame_id]] = frame_state;  
+  }
+}
+
+void update_framestates(
+    const Calibration& calib_cam,
+    Cameras& cameras,
+    std::vector<Timestamp>& timestamps,
+    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states,
+    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states_opt) {
+  for (auto& it : frame_states_opt) {
+    frame_states[it.first] = it.second;
+  }
+  for(const auto& cam : cameras){
+      frame_states[timestamps[cam.first.frame_id]].T_w_i = cam.second.T_w_c * calib_cam.T_i_c[0].inverse();
+  }
+}
+
+
 
 }  // namespace visnav

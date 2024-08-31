@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sstream>
 #include <thread>
 #include <sophus/se3.hpp>
+#include <time.h>
 
 #include <tbb/concurrent_unordered_map.h>
 #include <pangolin/display/image_view.h>
@@ -80,21 +81,19 @@ void draw_image_overlay(pangolin::View& v, size_t view_id);
 void change_display_to_image(const FrameCamId& fcid);
 void draw_scene();
 void load_data(const std::string& path, const std::string& calib_path);
-void load_imu(            // load imu data
-    DatasetIoInterfacePtr& dataset_io,
-    std::queue<std::pair<Timestamp, ImuData<double>::Ptr>>& imu_data_queue,  // <timestamp , data(timestamp acceleration gyro)>
-    std::vector<Timestamp>& timestamps_imu, 
-    CalibAccelBias<double>& calib_accel,
-    CalibGyroBias<double>& calib_gyro);
-void update_frame_states_from_opt(
-    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states,
-    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states_opt);
-void get_frame_states_opt(
-    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states,
-    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states_opt);
 bool next_step();
 void optimize();
 void compute_projections();
+
+///////////////////////////////////////////////////////////////////////////////
+/// Declarations for IMU 
+///////////////////////////////////////////////////////////////////////////////
+// void load_imu(            // load imu data
+//     DatasetIoInterfacePtr& dataset_io,
+//     std::queue<std::pair<Timestamp, ImuData<double>::Ptr>>& imu_data_queue,  // <timestamp , data(timestamp acceleration gyro)>
+//     std::vector<Timestamp>& timestamps_imu, 
+//     CalibAccelBias<double>& calib_accel,
+//     CalibGyroBias<double>& calib_gyro);
 void saveTrajectoryButton();
 double alignSVD(
     const std::vector<int64_t>& filter_t_ns,
@@ -103,7 +102,8 @@ double alignSVD(
     const std::vector<int64_t>& gt_t_ns,
     std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>&
         gt_t_w_i);
-double align_svd();
+double SVD_APPLY();
+
 ///////////////////////////////////////////////////////////////////////////////
 /// Constants
 ///////////////////////////////////////////////////////////////////////////////
@@ -138,7 +138,7 @@ CalibAccelBias<double> calib_acc;
 CalibGyroBias<double> calib_gyro;
 
 // initialization for imu
-bool use_imu = false;
+bool imu = false;
 bool initialized = false;
 using Vec3 = Eigen::Matrix<double, 3, 1>;
 Eigen::aligned_map<Timestamp, IntegratedImuMeasurement<double>> imu_measurements;
@@ -153,6 +153,7 @@ Timestamp last_state_t_ns;
 std::queue<std::pair<Timestamp, ImuData<double>::Ptr>> imu_data_queue;
 std::vector<Timestamp> imu_timestamps;
 
+PoseVelState<double> frame_state;
 Eigen::aligned_map<Timestamp, PoseVelState<double>> frame_states;
 Eigen::aligned_map<Timestamp, PoseVelState<double>> frame_states_opt;
 Eigen::aligned_map<Timestamp, PoseVelState<double>> frame_states_kf;
@@ -205,6 +206,10 @@ std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>
     
 // vio's timestamp
 std::vector<Timestamp> vio_t_ns;
+
+// old keyframe delete
+Camera delete_camera;
+FrameId delete_fid;
 
 /// cashed info on reprojected landmarks; recomputed every time time from
 /// cameras, landmarks, and feature_tracks; used for visualization and
@@ -293,7 +298,7 @@ using Button = pangolin::Var<std::function<void(void)>>;
 
 Button next_step_btn("ui.next_step", &next_step);
 Button save_traj_btn("ui.save_traj", &saveTrajectoryButton);
-Button SVD_btn("ui.svd", &align_svd);
+Button SVD_btn("ui.svd", &SVD_APPLY);
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -314,7 +319,7 @@ int main(int argc, char** argv) {
                  "Dataset path. Default: " + dataset_path);
   app.add_option("--cam-calib", cam_calib,
                  "Path to camera calibration. Default: " + cam_calib);
-  app.add_option("--use-imu", use_imu, "Use IMU");
+  app.add_option("--imu", imu, "VIO");
   try {
     app.parse(argc, argv);
   } catch (const CLI::ParseError& e) {
@@ -322,6 +327,8 @@ int main(int argc, char** argv) {
   }
 
   load_data(dataset_path, cam_calib);
+
+  
 
   if (show_gui) {
     pangolin::CreateWindowAndBind("Main", 1800, 1000);
@@ -373,6 +380,11 @@ int main(int argc, char** argv) {
             .SetAspect(-640 / 480.0)
             .SetHandler(new pangolin::Handler3D(camera));
     main_view.AddDisplay(display3D);
+
+    // Initialize variables to calculate total time for next_step to return true
+    bool measuring_time = false;
+    auto start = std::chrono::high_resolution_clock::time_point();
+    auto end = std::chrono::high_resolution_clock::time_point();
 
     while (!pangolin::ShouldQuit()) {
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -436,12 +448,27 @@ int main(int argc, char** argv) {
         }
       }
 
+
+
       pangolin::FinishFrame();
       if (continue_next) {
+        if (!measuring_time) {
+          // Start measuring time when next_step starts returning true
+          start = std::chrono::high_resolution_clock::now();
+          measuring_time = true;
+        }        
         // stop if there is nothing left to do
         continue_next = next_step();
+
+        if (!continue_next) {
+          // Stop measuring time when next_step returns false
+          end = std::chrono::high_resolution_clock::now();
+          std::chrono::duration<double> elapsed = end - start;
+          std::cout << "Total execution time gui: " << elapsed.count() << " seconds" << std::endl;
+        }
       } else {
         // if the gui is just idling, make sure we don't burn too much CPU
+
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
       }
     }
@@ -449,11 +476,13 @@ int main(int argc, char** argv) {
     // non-gui mode: Process all frames, then exit
 
     while (next_step()) {
-      // nop
+      // Continue processing frames
     }
+
+
   }
   saveTrajectoryButton();
-  align_svd();
+  SVD_APPLY();
   return 0;
 }
 
@@ -888,23 +917,7 @@ void load_data(const std::string& dataset_path, const std::string& calib_path) {
 
 
 
-void load_imu(
-    DatasetIoInterfacePtr& dataset_io,
-    std::queue<std::pair<Timestamp, ImuData<double>::Ptr>>& imu_data_queue, //  timestamp & data(timestamp acceleration gyro)
-    std::vector<Timestamp>& timestamps_imu, 
-    CalibAccelBias<double>& calib_accel,
-    CalibGyroBias<double>& calib_gyro) {
-  for (size_t i = 0; i < dataset_io->get_data()->get_accel_data().size(); i++) {
-    ImuData<double>::Ptr data(new ImuData<double>);  // create imu data object
-    data->t_ns = dataset_io->get_data()->get_gyro_data()[i].timestamp_ns;  // assign timestamp
-    timestamps_imu.push_back(data->t_ns);
-    data->accel = calib_accel.getCalibrated(
-        dataset_io->get_data()->get_accel_data()[i].data);  // calibrate acceleration and gyrometer ; and then assign data-> accel & gyro with calibrated version
-    data->gyro = calib_gyro.getCalibrated(
-        dataset_io->get_data()->get_gyro_data()[i].data);
-    imu_data_queue.push(std::make_pair(data->t_ns, data));
-  }
-}
+
 ///////////////////////////////////////////////////////////////////////////////
 /// Here the algorithmically interesting implementation begins
 ///////////////////////////////////////////////////////////////////////////////
@@ -912,14 +925,16 @@ void load_imu(
 // Execute next step in the overall odometry pipeline. Call this repeatedly
 // until it returns false for automatic execution.
 bool next_step() {
+
   if (current_frame >= int(images.size()) / NUM_CAMS) return false;// one frame two cameras
 
   const Sophus::SE3d T_0_1 = calib_cam.T_i_c[0].inverse() * calib_cam.T_i_c[1];
-  
+
+
   if (take_keyframe) {
     take_keyframe = false;
 
-    if (use_imu) {
+    if (imu) {
       const Vec3 accel_cov = (calib_cam.accel_noise_std).array().square();
 
       const Vec3 gyro_cov = (calib_cam.gyro_noise_std).array().square();
@@ -1061,7 +1076,7 @@ bool next_step() {
     cameras[fcidr].T_w_c = current_pose * T_0_1;
 
 
-    if (use_imu) {
+    if (imu) {
           recent_kf_cameras[fcidl].T_w_c = current_pose; // recent cameras : KeyFrame cameras 
           //std::cout<< "add recent KF camera!! "<< std::endl;
 
@@ -1088,16 +1103,14 @@ bool next_step() {
     add_new_landmarks(fcidl, fcidr, kdl, kdr, calib_cam, md_stereo, md,
                       landmarks, next_landmark_id);
 
-    Camera removed_camera;
-    FrameId removed_fid;
-    bool removed = remove_old_keyframes(fcidl, max_num_kfs, cameras, landmarks,
+    bool removed_old_keyframes = delete_oldframes(fcidl, max_num_kfs, cameras, landmarks,
                                         old_landmarks, kf_frames,
-                                        removed_camera, removed_fid);
+                                        delete_camera, delete_fid);
 
     // Ducument the removed keyframe
-    if (removed) {
-      Sophus::SE3d T_w_i = removed_camera.T_w_c * calib_cam.T_i_c[0].inverse();
-      vio_t_ns.push_back(timestamps[removed_fid]);
+    if (removed_old_keyframes) {
+      Sophus::SE3d T_w_i = delete_camera.T_w_c * calib_cam.T_i_c[0].inverse();
+      vio_t_ns.push_back(timestamps[delete_fid]);
       vio_t_w_i.push_back(T_w_i); //imu frame's T relative to world frame and timestamp
       vio_points.push_back(T_w_i.translation());    
     }
@@ -1165,7 +1178,7 @@ bool next_step() {
 
       cameras = cameras_opt;
 
-      if(use_imu){
+      if(imu){
         // update kf cameras
         for(auto& cam : cameras){
           for(auto& cam_imu : recent_kf_cameras){
@@ -1179,11 +1192,10 @@ bool next_step() {
 
       calib_cam = calib_cam_opt;
 
-       if (use_imu) {
-          update_frame_states_from_opt(frame_states, frame_states_opt);
-      } else {
-        // Do nothing here
-      }
+       if (imu) {
+          update_framestates(calib_cam, cameras, timestamps,frame_states, frame_states_opt);
+          //update the framestate from optimization
+      } else {}
       opt_finished = false;
     }
 
@@ -1194,6 +1206,7 @@ bool next_step() {
     current_frame++;
     return true;
   }
+
 }
 
 // Compute reprojections for all landmark observations for visualization and
@@ -1280,8 +1293,8 @@ void optimize() {
   cameras_opt = cameras;
   landmarks_opt = landmarks;
 
-  if (use_imu) {
-    get_frame_states_opt(frame_states, frame_states_opt);  //size (frame_states_opt) = size(keyframes cameras)
+  if (imu) {
+    take_framestates(calib_cam,recent_kf_cameras,timestamps, frame_state,frame_states,frame_states_opt);  //size (frame_states_opt) = size(keyframes cameras)
     // std::cout<< "get frame states optimization !"<<std::endl;
   } else {
     // Do nothing here
@@ -1292,7 +1305,7 @@ void optimize() {
   opt_thread.reset(new std::thread([fid, ba_options] {
 
   std::set<FrameCamId> fixed_cameras = {{fid, 0}, {fid, 1}};
-  if(use_imu){  // optimize poses landmarks and intrisics
+  if(imu){  // optimize poses landmarks and intrisics
       //std::cout << "start imu projection BA..." << std::endl;
       Imu_Proj_bundle_adjustment(feature_corners, ba_options, fixed_cameras, calib_cam_opt,
                                 cameras_opt, landmarks_opt, frame_states_opt, imu_measurements,
@@ -1311,29 +1324,8 @@ void optimize() {
   compute_projections();
 }
 
-void get_frame_states_opt(
-    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states,
-    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states_opt) {
-  frame_states_opt.clear();
-  for (const auto& kv : recent_kf_cameras) {
-    PoseVelState<double> frame_state;
-      frame_state.T_w_i = kv.second.T_w_c * calib_cam.T_i_c[0].inverse(); // here we load T_w_c, we will do next transformation for the cost function
-      frame_state.vel_w_i = frame_states[timestamps[kv.first.frame_id]].vel_w_i;
-      frame_state.t_ns = timestamps[kv.first.frame_id];
-      frame_states_opt[timestamps[kv.first.frame_id]] = frame_state;  
-  }
-}
 
-void update_frame_states_from_opt(
-    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states,
-    Eigen::aligned_map<Timestamp, PoseVelState<double>>& frame_states_opt) {
-  for (auto& it : frame_states_opt) {
-    frame_states[it.first] = it.second;
-  }
-  for(const auto& cam : cameras){
-      frame_states[timestamps[cam.first.frame_id]].T_w_i = cam.second.T_w_c * calib_cam.T_i_c[0].inverse();
-  }
-}
+////Here is from Basalt//
 double alignSVD(
     const std::vector<int64_t>& filter_t_ns,
     const std::vector<Eigen::Vector3d,
@@ -1432,14 +1424,11 @@ double alignSVD(
 
   error /= est_associations.size();
   error = std::sqrt(error);
-
-  // std::cout << "T_align\n" << T_gt_est.matrix() << std::endl;
-  // std::cout << "error " << error << std::endl;
-  // std::cout << "number of associations " << num_kfs << std::endl;
   return error;
 }
+////Here is from Basalt//
 
-double align_svd() {
+double SVD_APPLY() {
   for (auto& fid : kf_frames) {
     FrameCamId temp_fcid(fid, 0);
     vio_points.push_back(
@@ -1458,7 +1447,7 @@ void saveTrajectoryButton() {
     vio_t_w_i.push_back(
         (cameras.at(temp_fcid).T_w_c * calib_cam.T_i_c[0].inverse()));
   }
-    if(use_imu){
+    if(imu){
           std::ofstream os("tum_benchmark_tools/vio_trajectory.txt");
 
           for (size_t i = 0; i < vio_t_ns.size(); i++) {

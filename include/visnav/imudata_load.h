@@ -229,5 +229,23 @@ class DatasetIoFactory {
   }
 };
 
+void load_imu(
+    DatasetIoInterfacePtr& dataset_io,
+    std::queue<std::pair<Timestamp, ImuData<double>::Ptr>>& imu_data_queue, //  timestamp & data(timestamp acceleration gyro)
+    std::vector<Timestamp>& timestamps_imu, 
+    CalibAccelBias<double>& calib_accel,
+    CalibGyroBias<double>& calib_gyro) {
+  for (size_t i = 0; i < dataset_io->get_data()->get_accel_data().size(); i++) {
+    ImuData<double>::Ptr data(new ImuData<double>);  // create imu data object
+    data->t_ns = dataset_io->get_data()->get_gyro_data()[i].timestamp_ns;  // assign timestamp
+    timestamps_imu.push_back(data->t_ns);
+    data->accel = calib_accel.getCalibrated(
+        dataset_io->get_data()->get_accel_data()[i].data);  // calibrate acceleration and gyrometer ; and then assign data-> accel & gyro with calibrated version
+    data->gyro = calib_gyro.getCalibrated(
+        dataset_io->get_data()->get_gyro_data()[i].data);
+    imu_data_queue.push(std::make_pair(data->t_ns, data));
+  }
+}
+
 
 }

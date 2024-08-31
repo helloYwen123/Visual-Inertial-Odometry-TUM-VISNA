@@ -329,7 +329,7 @@ void add_new_landmarks(const FrameCamId fcidl, const FrameCamId fcidr,
   }
 }
 
-bool remove_old_keyframes(const FrameCamId fcidl, const int max_num_kfs,
+bool delete_oldframes(const FrameCamId fcidl, const int max_num_kfs,
                           Cameras& cameras, Landmarks& landmarks,
                           Landmarks& old_landmarks,
                           std::set<FrameId>& kf_frames, Camera& removed_camera,

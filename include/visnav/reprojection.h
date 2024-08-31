@@ -193,7 +193,6 @@ struct BundleAdjustmentImuCostFunctor {
     Vec3 tmp2 = RO_w_i0_inv * (state1_v_w_i - state0_v_w_i - g * dt);
     residuals.template segment<3>(6) = tmp2 - (delta_state_.vel_w_i); // velocity residual
 
-    //std::cout<<residuals<<std::endl;
     return true;
     
   }
