@@ -10,7 +10,7 @@ Pei-Ran Huang
 Wenjie Xie
 
 
-For specifics, please review the project [report]().
+For detailed information, please refer to the project [report]().
 ## Setup
 ```
 git clone --recursive https://gitlab.lrz.de/24ss_visnav_vio/visual_inertial_slam.git
