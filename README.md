@@ -9,15 +9,28 @@ Pei-Ran Huang
 
 Wenjie Xie
 
-Command to run:
+## Setup
+```
+git clone --recursive https://gitlab.lrz.de/24ss_visnav_vio/visual_inertial_slam.git
+```
+Run the sh file to install all- Prerequisites packages
 
-mkdir build
-
-
-cd build
-
+```
+cd ${yourworkspacename}
+./install_dependencies.sh
+./build_submodules.sh
+```
+After running the command, then need to build code
+```
+mkdir build && cd build
 cmake ..
-
 make
+```
+## Running 
 
-./build/odometry --dataset-path data/(datafolder)/mav0/ --cam-calib euroc_ds_calib.json --imu true
+Please adjust the variable names for the dataset and the status of IMU utilization as required.
+```
+cd ${yourworkspacename}
+./build/odometry --dataset-path /data/euro_data/${datafolder}/mav0 --cam-calib euroc_ds_calib_visnav_type.json --use-imu true
+```
+
