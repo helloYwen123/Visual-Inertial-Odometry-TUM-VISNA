@@ -1,6 +1,7 @@
 # Visual-Inertial Tracking using Preintegrated Factors
 
 This repo for project is built upon part of the code in practical course "Vision-based Navigation" (IN2106 24SS) taught at the Technical University of Munich(TUM). 
+Final report: [report](Report_Visual_Inertial_odometry.pdf)
 
 **Team Member**:
 
