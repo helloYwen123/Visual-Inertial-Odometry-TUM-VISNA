@@ -12,7 +12,7 @@ Wenjie Xie
 
 ## Setup
 ```
-git clone --recursive https://gitlab.lrz.de/24ss_visnav_vio/visual_inertial_slam.git
+git clone --recursive https://github.com/helloYwen123/Visual-Inertial-Odometry-TUM_Visnav.git
 ```
 Run the sh file to install all- Prerequisites packages
 
