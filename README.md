@@ -27,7 +27,7 @@ mkdir build && cd build
 cmake ..
 make
 ```
-Note our performance testing for algorithm is only based on benchmark [EuRoC](https://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets) from ETH
+Note our performance testing for algorithm is only based on benchmark [EuRoC](https://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets) from ETH. You can simply download it using bash script in `data` folder
 ## Running 
 
 Please adjust the variable names for the dataset and the status of IMU utilization as required.
