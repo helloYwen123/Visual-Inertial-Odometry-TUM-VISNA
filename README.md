@@ -27,7 +27,8 @@ mkdir build && cd build
 cmake ..
 make
 ```
-Note our performance testing for algorithm is only based on benchmark [EuRoC](https://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets) from ETH. You can simply download it using bash script in `data` folder
+### Note: 
+our experiment is only based on benchmark [EuRoC](https://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets) from ETH. You can simply download it using bash script in `data` folder
 ## Running 
 
 Please adjust the variable names for the dataset and the status of IMU utilization as required.
@@ -35,6 +36,6 @@ Please adjust the variable names for the dataset and the status of IMU utilizati
 cd ${yourworkspacename}
 ./build/odometry --dataset-path /data/euro_data/${datafolder}/mav0 --cam-calib euroc_ds_calib_visnav_type.json --use-imu true
 ```
-### demo video
+### Demo Video
 You can see our results presentation in the [demo](https://drive.google.com/file/d/1wb0d1FAokyZxkMmGQOABPveuwGAcV28H/view?usp=drive_link)
 
