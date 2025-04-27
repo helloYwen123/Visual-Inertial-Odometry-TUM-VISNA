@@ -29,6 +29,10 @@ make
 ```
 ### Note: 
 our experiment is only based on benchmark [EuRoC](https://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets) from ETH. You can simply download it using bash script in `data` folder
+
+### Next Step TODO：
+Loop Closure Integration
+
 ## Running 
 
 Please adjust the variable names for the dataset and the status of IMU utilization as required.
